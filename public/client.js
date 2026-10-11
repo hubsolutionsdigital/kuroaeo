@@ -537,7 +537,17 @@ function setupSelection(container, item, datasetId) {
   container.addEventListener('mouseup', () => setTimeout(check, 0));
   container.addEventListener('keyup', () => setTimeout(check, 0));
   container.addEventListener('touchend', () => setTimeout(check, 300));
+  activeSelCheck = check;
 }
+
+// iPhone and iPad Safari change the selection with drag handles, which fire no
+// mouse or touch events on the article, so also watch the selection itself.
+let activeSelCheck = null;
+let selTimer;
+document.addEventListener('selectionchange', () => {
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => { if (activeSelCheck) activeSelCheck(); }, 350);
+});
 document.addEventListener('mousedown', (e) => { if (selBtn && !selBtn.contains(e.target)) hideSelBtn(); });
 window.addEventListener('scroll', hideSelBtn, { passive: true });
 
