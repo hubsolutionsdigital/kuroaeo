@@ -1,0 +1,23 @@
+{
+  "name": "kuroaeo-review-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SEO & AEO client review portal: keywords, on-page SEO, backlinks, prompts and blogs, reviewed by clients through a private project link.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "mammoth": "^1.13.0",
+    "multer": "^2.4.0",
+    "sanitize-html": "^2.18.0"
+  }
+}
