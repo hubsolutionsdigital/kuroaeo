@@ -676,7 +676,7 @@ function focusThread(id) {
   const card = document.querySelector(`.doc-side .fb[data-fid="${id}"]`);
   if (card) {
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    card.animate([{ boxShadow: '0 0 0 3px rgba(61,102,82,.45)' }, { boxShadow: '0 0 0 0 rgba(61,102,82,0)' }], { duration: 1400 });
+    card.animate([{ boxShadow: '0 0 0 3px rgba(43,90,166,.45)' }, { boxShadow: '0 0 0 0 rgba(43,90,166,0)' }], { duration: 1400 });
   }
 }
 
