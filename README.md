@@ -33,7 +33,13 @@ ADMIN_PASSWORD='choose-a-strong-password' npm start
 | `SESSION_SECRET` | derived from the password | Signs the admin login cookie |
 
 Docker: `docker build -t review-portal . && docker run -p 3000:3000 -e ADMIN_PASSWORD=… -v portal-data:/data review-portal`.
-On Render, Railway or Fly.io, attach a persistent volume at `/data`.
+
+### Railway
+
+1. **New Project → Deploy from GitHub repo** and pick this repo. `railway.json` tells Railway to build the Dockerfile and check `/healthz`.
+2. **Add a volume** to the service with mount path `/data`. Without it, projects and feedback are lost on every redeploy.
+3. **Variables:** set `ADMIN_PASSWORD` (required) and optionally `AGENCY_NAME`. Railway sets `PORT` itself.
+4. **Settings → Networking → Generate Domain**, or add your own custom domain. Client links use whichever address you open the admin from.
 
 Tests: `npm test`.
 
