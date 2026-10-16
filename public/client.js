@@ -119,23 +119,6 @@ function render() {
     site = h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, p.website.replace(/^https?:\/\//, '').replace(/\/$/, ''));
   }
 
-  let intro = null;
-  let dismissed = false;
-  try { dismissed = localStorage.getItem(`intro:${token}`) === '1'; } catch { /* ignore */ }
-  if (!dismissed) {
-    intro = h('div', { class: 'card card-pad', style: { marginBottom: '18px', display: 'flex', gap: '14px', alignItems: 'flex-start' } },
-      h('div', { style: { fontSize: '26px' } }, '👋'),
-      h('div', { style: { flex: 1 } },
-        h('strong', null, 'Welcome! Here is how to review'),
-        h('div', { class: 'muted', style: { marginTop: '4px' } },
-          'Open each tab to see what we have prepared. Press ', h('strong', null, 'Review'), ' on any row to tell us you love it, approve it, suggest a change or ask a question. ',
-          'In blog articles, highlight any sentence to comment on it. No account needed — just add your name.')),
-      h('button', {
-        class: 'btn ghost sm',
-        onclick: (e) => { try { localStorage.setItem(`intro:${token}`, '1'); } catch { /* ignore */ } e.currentTarget.parentElement.remove(); },
-      }, 'Got it'));
-  }
-
   app.replaceChildren(
     h('div', { class: 'hero' },
       h('div', null,
@@ -145,8 +128,8 @@ function render() {
           site,
           h('span', { class: 'muted' }, `Prepared by ${S.agency}`))),
       h('div', { class: 'row-flex' },
-        h('button', { class: 'btn', onclick: openActivity }, '🗂️ All feedback'))),
-    intro,
+        h('button', { class: 'btn', id: 'tour-btn', onclick: () => startTour() }, '❔ How to use'),
+        h('button', { class: 'btn', id: 'all-feedback-btn', onclick: openActivity }, '🗂️ All feedback'))),
     h('nav', { class: 'tabs', id: 'tabs', role: 'tablist' }),
     h('section', { id: 'tabbody' }));
   renderTabs();
@@ -158,7 +141,7 @@ function renderTabs() {
   nav.replaceChildren(...TAB_ORDER.map((t) => {
     const pr = S.progress[t] || { items: 0, reviewed: 0 };
     return h('button', {
-      class: `tab${S.tab === t ? ' active' : ''}`, role: 'tab', 'aria-selected': String(S.tab === t),
+      class: `tab${S.tab === t ? ' active' : ''}`, role: 'tab', 'data-tab': t, 'aria-selected': String(S.tab === t),
       onclick: () => { S.tab = t; S.filter = { q: '', status: 'all' }; history.replaceState(null, '', `#${t}`); renderTabs(); renderTabBody(); },
     }, `${TAB_META[t].icon} ${TAB_META[t].label}`, pr.items ? h('span', { class: 'count', title: `${pr.reviewed} of ${pr.items} reviewed` }, `${pr.reviewed}/${pr.items}`) : null);
   }));
@@ -418,8 +401,15 @@ function linkFor(s) {
 }
 
 // Columns each viewer has hidden, remembered per sheet in this browser.
+// Keyword sheets carry working columns clients rarely need; they start hidden
+// and can be shown again from the Columns menu.
+const DEFAULT_HIDDEN = { keywords: [/^column \d+$/i, /^status$/i, /^tier$/i, /search intent/i, /^competition$/i] };
 function hiddenCols(dataset) {
-  try { return new Set(JSON.parse(localStorage.getItem(`cols:${token}:${dataset.tab}:${dataset.name}`) || '[]')); } catch { return new Set(); }
+  let saved = null;
+  try { saved = localStorage.getItem(`cols:${token}:${dataset.tab}:${dataset.name}`); } catch { /* private mode */ }
+  if (saved !== null) { try { return new Set(JSON.parse(saved)); } catch { /* fall through */ } }
+  const rules = DEFAULT_HIDDEN[dataset.tab] || [];
+  return new Set((dataset.columns || []).filter((c) => rules.some((re) => re.test(c))));
 }
 function saveHiddenCols(dataset, set) {
   try { localStorage.setItem(`cols:${token}:${dataset.tab}:${dataset.name}`, JSON.stringify([...set])); } catch { /* private mode */ }
@@ -429,7 +419,7 @@ function columnsButton(payload, A) {
   const { dataset } = payload;
   const hidden = hiddenCols(dataset);
   const all = A.allVisible.filter((c) => c !== dataset.primary && c !== A.numIdx);
-  const btn = h('button', { class: 'btn', type: 'button', 'aria-haspopup': 'true' }, hidden.size ? `Columns (${hidden.size} hidden)` : 'Columns');
+  const btn = h('button', { class: 'btn columns-btn', type: 'button', 'aria-haspopup': 'true' }, hidden.size ? `Columns (${hidden.size} hidden)` : 'Columns');
   btn.addEventListener('click', () => {
     closePopover();
     const boxes = all.map((c) => {
@@ -477,7 +467,7 @@ function renderTable(payload) {
     class: S.filter.status === k ? 'active' : '',
     onclick: () => { S.filter.status = k; renderTabBody(); },
   }, label)));
-  const approveAllBtn = h('button', { class: 'btn brand', disabled: !pendingApproval }, pendingApproval ? `✓ Approve all (${pendingApproval})` : '✓ All approved');
+  const approveAllBtn = h('button', { class: 'btn brand approve-all-btn', disabled: !pendingApproval }, pendingApproval ? `✓ Approve all (${pendingApproval})` : '✓ All approved');
   approveAllBtn.addEventListener('click', () => openApproveAll(approveAllBtn, payload, pendingApproval));
 
   wrap.append(h('div', { class: 'toolbar' },
@@ -760,6 +750,156 @@ function focusThread(id) {
   }
 }
 
+/* ---------- guided tour ---------- */
+
+const TOUR_STEPS = [
+  {
+    title: 'Welcome to your review portal 👋',
+    body: [
+      `This is where you check and approve the SEO & AEO work ${'${AGENCY}'} has prepared for you.`,
+      'There is nothing to install and no account to create. Just add your name when you leave feedback.',
+      'This short guide takes about a minute. You can open it again any time with “❔ How to use”.',
+    ],
+  },
+  {
+    target: '#tabs',
+    title: 'Five sections to review',
+    body: [
+      '🔑 Keywords: the searches we will rank you for, with monthly rankings.',
+      '📄 On-Page SEO: page titles, meta descriptions and headings for your website.',
+      '🔗 Backlinks: websites and directories where we plan to list you.',
+      '💬 Prompts: questions people ask ChatGPT and Google AI, where we want you to appear.',
+      '✍️ Blogs: articles written for you to read and approve.',
+      'The number on each tab (e.g. 3/30) shows how many items you have reviewed.',
+    ],
+  },
+  {
+    target: '.stats',
+    tab: 'keywords',
+    title: 'Reading your rankings',
+    body: [
+      'Ranking badges show where you appear on Google today. Green means you are in the top 12.',
+      'Dashed ranges such as 12-25 are our projections for each month. Green ranges are projected to reach the top 12.',
+      'Each month we add your actual rankings. Use the version picker at the top right to see earlier months.',
+    ],
+  },
+  {
+    target: '.review-btn',
+    title: 'Give feedback on any row',
+    body: [
+      'Press ★ Review to tell us what you think: ❤️ Love it, 👍 Like this, 🎉 This is great, ✅ Approve, ✏️ Suggest a change or ❓ Ask a question.',
+      'Add your name and an optional comment. Your status then appears next to the row.',
+    ],
+  },
+  {
+    target: '.approve-all-btn',
+    title: 'Approve a whole list at once',
+    body: [
+      'Happy with everything in this list? Approve all signs off every item you have not approved yet.',
+      'You can still comment on any single item afterwards.',
+    ],
+  },
+  {
+    target: '.columns-btn',
+    title: 'Show only what you need',
+    body: ['Some working columns are hidden to keep the table short. Use Columns to show or hide them. Your choice is remembered on this device.'],
+  },
+  {
+    target: '.tab[data-tab="blogs"]',
+    title: 'Reviewing blog articles',
+    body: [
+      'Open an article and read it as it will appear on your site.',
+      'Highlight any sentence and press 💬 Comment to give feedback on that part.',
+      'Confirm the review points in the Overview, then press ✓ Approve article when you are happy.',
+    ],
+  },
+  {
+    title: 'What we need from you',
+    checklist: [
+      ['Keywords', 'Are these the services and areas you want to be found for? Remove or question anything that does not fit.'],
+      ['On-Page SEO', 'Are the page titles and descriptions accurate for your business?'],
+      ['Backlinks', 'Are you happy to be listed on these sites?'],
+      ['Prompts', 'Are these the questions your customers really ask?'],
+      ['Blogs', 'Check facts, prices, offers, team names and credentials. We cannot verify these for you.'],
+    ],
+    body: ['When everything in a section looks right, approve it. Questions are welcome, and we reply right here.'],
+  },
+  {
+    target: '#all-feedback-btn',
+    title: 'Track your feedback and our replies',
+    body: [
+      'All feedback lists everything you and your colleagues have sent, with our replies.',
+      'You can share this link with colleagues, and everyone who opens it can review too.',
+    ],
+  },
+];
+
+let tourEl = null;
+function endTour() {
+  if (tourEl) { tourEl.remove(); tourEl = null; }
+  try { localStorage.setItem(`tour:${token}`, '1'); } catch { /* ignore */ }
+  document.removeEventListener('keydown', tourKeys);
+}
+function tourKeys(e) {
+  if (!tourEl) return;
+  if (e.key === 'Escape') endTour();
+  if (e.key === 'ArrowRight') tourEl.querySelector('.tour-next')?.click();
+  if (e.key === 'ArrowLeft') tourEl.querySelector('.tour-back')?.click();
+}
+
+async function startTour(i = 0) {
+  closePopover();
+  closeDrawer();
+  if (tourEl) tourEl.remove();
+  document.removeEventListener('keydown', tourKeys);
+  document.addEventListener('keydown', tourKeys);
+  const step = TOUR_STEPS[i];
+  if (step.tab && S.tab !== step.tab && S.datasets.some((d) => d.tab === step.tab)) {
+    S.tab = step.tab;
+    history.replaceState(null, '', `#${step.tab}`);
+    renderTabs();
+    await renderTabBody();
+  }
+  const target = step.target ? document.querySelector(step.target) : null;
+  if (target) {
+    target.scrollIntoView({ block: 'center', behavior: 'instant' });
+  }
+  const rect = target ? target.getBoundingClientRect() : null;
+  const visible = rect && rect.width > 0 && rect.height > 0;
+
+  const last = i === TOUR_STEPS.length - 1;
+  const card = h('div', { class: 'tour-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': step.title },
+    h('div', { class: 'tour-count' }, `Step ${i + 1} of ${TOUR_STEPS.length}`),
+    h('h3', null, step.title),
+    step.checklist ? h('ul', { class: 'tour-check' }, step.checklist.map(([k, v]) => h('li', null, h('strong', null, k), ' ', v))) : null,
+    h('div', { class: 'tour-body' }, step.body.map((t) => h('p', null, t.replace('${AGENCY}', S.agency)))),
+    h('div', { class: 'tour-dots', 'aria-hidden': 'true' }, TOUR_STEPS.map((_, n) => h('span', { class: n === i ? 'on' : null }))),
+    h('div', { class: 'tour-actions' },
+      h('button', { class: 'btn ghost', onclick: endTour }, last ? 'Close' : 'Skip guide'),
+      h('div', { class: 'row-flex' },
+        i > 0 ? h('button', { class: 'btn tour-back', onclick: () => startTour(i - 1) }, '← Back') : null,
+        h('button', { class: 'btn primary tour-next', onclick: () => (last ? endTour() : startTour(i + 1)) }, last ? 'Start reviewing' : 'Next →'))));
+
+  const hole = visible ? h('div', { class: 'tour-hole' }) : null;
+  tourEl = h('div', { class: 'tour' }, h('div', { class: `tour-shade${visible ? ' clear' : ''}` }), hole, card);
+  document.body.append(tourEl);
+
+  if (visible) {
+    const pad = 8;
+    Object.assign(hole.style, { left: `${rect.left - pad}px`, top: `${rect.top - pad}px`, width: `${rect.width + pad * 2}px`, height: `${rect.height + pad * 2}px` });
+    if (window.innerWidth > 640) {
+      const cw = card.offsetWidth;
+      const ch = card.offsetHeight;
+      let top = rect.bottom + 16;
+      if (top + ch > window.innerHeight - 12) top = rect.top - ch - 16;
+      top = Math.min(Math.max(12, top), window.innerHeight - ch - 12);
+      const left = Math.min(Math.max(12, rect.left + rect.width / 2 - cw / 2), window.innerWidth - cw - 12);
+      Object.assign(card.style, { left: `${left}px`, top: `${top}px`, transform: 'none' });
+    }
+  }
+  card.querySelector('.tour-next').focus();
+}
+
 /* ---------- boot ---------- */
 
 (async function init() {
@@ -778,4 +918,7 @@ function focusThread(id) {
     if (first) S.tab = first;
   }
   render();
+  let seen = false;
+  try { seen = localStorage.getItem(`tour:${token}`) === '1'; } catch { /* ignore */ }
+  if (!seen) setTimeout(() => startTour(), 600);
 })();
