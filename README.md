@@ -31,7 +31,9 @@ ADMIN_PASSWORD='choose-a-strong-password' npm start
 | `DATA_DIR` | `./data` | Where the SQLite database lives. Keep it on a persistent disk |
 | `PORT` | `3000` | HTTP port |
 | `SESSION_SECRET` | derived from the password | Signs the admin login cookie |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | — | Google service account key (the whole JSON, or base64 of it) for GA4 and Search Console |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | OAuth web client for "Connect Google account" (GA4 and Search Console) |
+| `GOOGLE_REDIRECT_URI` | `<this site>/api/admin/google/callback` | Only if the portal sits behind a proxy that changes the host |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | — | Alternative to the above: a service account key (the whole JSON, or base64 of it) |
 | `SEMRUSH_API_KEY` | — | Optional: daily live rankings from SEMrush |
 
 Docker: `docker build -t review-portal . && docker run -p 3000:3000 -e ADMIN_PASSWORD=… -v portal-data:/data review-portal`.
@@ -78,9 +80,14 @@ Clients switch between **✅ Review** and **📈 Performance**. The Performance 
 
 ### Connecting Google (one time)
 
-1. In Google Cloud, create a project, enable the **Google Analytics Data API** and the **Google Search Console API**, create a **service account**, and download a JSON key.
-2. In Railway → Variables, add `GOOGLE_SERVICE_ACCOUNT_JSON` with the whole JSON as its value.
-3. For each client, open **Admin → project → Performance**, copy the service account email, and ask the client to add it:
-   - as a **Viewer** in GA4 (Admin → Property access management);
-   - as a **Restricted user** in Search Console (Settings → Users and permissions).
-4. Enter the GA4 property ID and the Search Console property (`sc-domain:example.com` or `https://www.example.com/`), set the campaign start month, then click **Sync Google now**. After that, data refreshes daily.
+The portal signs in as one agency Google account (no key file needed, so it works when your organisation blocks service account keys).
+
+1. In Google Cloud → **APIs & Services → Library**, enable the **Google Analytics Data API**, **Google Search Console API** and **Google Analytics Admin API** (the last one only lists properties for the picker).
+2. **OAuth consent screen** (Google Auth Platform): audience **Internal**, so only your Workspace accounts can sign in and the connection does not expire after 7 days.
+3. **Clients → Create client → Web application**, with the authorised redirect URI shown in **Admin → project → Performance** (`https://<your domain>/api/admin/google/callback`).
+4. In Railway → Variables, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. After the redeploy, click **Connect Google account** in Admin → Performance and sign in with the account that has access to your clients' GA4 and Search Console. The refresh token is stored encrypted with `SESSION_SECRET` (or the admin password); changing either means connecting again.
+5. If a client's property is missing from the list, ask the client to add that account as a **Viewer** in GA4 and a user in Search Console.
+
+A service account (`GOOGLE_SERVICE_ACCOUNT_JSON`) still works instead, if you prefer one.
+
+6. Enter the GA4 property ID and the Search Console property (`sc-domain:example.com` or `https://www.example.com/`), set the campaign start month, then click **Sync Google now**. After that, data refreshes daily.

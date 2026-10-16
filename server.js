@@ -12,6 +12,7 @@ const PORT = Number(process.env.PORT) || 3000;
 const AGENCY_NAME = process.env.AGENCY_NAME || 'Hub Solutions Digital';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.createHash('sha256').update(`portal:${ADMIN_PASSWORD}`).digest('hex');
+analytics.setSecret(SESSION_SECRET);
 if (!process.env.ADMIN_PASSWORD) {
   if (process.env.NODE_ENV === 'production') throw new Error('Set ADMIN_PASSWORD before running in production.');
   console.warn('ADMIN_PASSWORD is not set; using the default password "admin".');
@@ -453,11 +454,58 @@ app.get('/api/admin/projects/:id/feedback.csv', requireAdmin, (req, res) => {
 
 // ---------- admin: performance dashboard ----------
 
+// "Sign in with Google": one agency Google account, connected once, reads every
+// client's Search Console and GA4 that the account has access to.
+function googleRedirectUri(req) {
+  return process.env.GOOGLE_REDIRECT_URI || `${req.protocol}://${req.get('host')}/api/admin/google/callback`;
+}
+
+app.get('/api/admin/google/connect', (req, res) => {
+  if (!isAdmin(req)) return res.redirect('/admin');
+  const project = Number(req.query.project) || 0;
+  const nonce = crypto.randomBytes(16).toString('base64url');
+  const state = `${nonce}.${project}`;
+  let url;
+  try { url = analytics.googleAuthUrl(googleRedirectUri(req), state); } catch (err) {
+    return res.redirect(`/admin?google=error&msg=${encodeURIComponent(err.message)}#/${project ? `project/${project}/performance` : ''}`);
+  }
+  res.cookie('portal_google', `${state}.${sign(`google:${state}`)}`, {
+    httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 10 * 60 * 1000, path: '/api/admin/google',
+  });
+  res.redirect(url);
+});
+
+app.get('/api/admin/google/callback', async (req, res) => {
+  const cookie = readCookie(req, 'portal_google') || '';
+  res.clearCookie('portal_google', { path: '/api/admin/google' });
+  const state = String(req.query.state || '');
+  const project = Number(state.split('.')[1]) || 0;
+  const back = (status, message) => res.redirect(`/admin?google=${status}${message ? `&msg=${encodeURIComponent(message)}` : ''}#/${project ? `project/${project}/performance` : ''}`);
+  const expected = `${state}.${sign(`google:${state}`)}`;
+  const validState = state && cookie.length === expected.length && crypto.timingSafeEqual(Buffer.from(cookie), Buffer.from(expected));
+  if (!isAdmin(req) || !validState) return back('error', 'The sign-in link expired. Please click Connect again.');
+  if (req.query.error) return back('error', req.query.error === 'access_denied' ? 'Google access was not granted.' : String(req.query.error).slice(0, 100));
+  try {
+    const email = await analytics.connectGoogle(String(req.query.code || ''), googleRedirectUri(req));
+    back('connected', email);
+  } catch (err) { back('error', err.message); }
+});
+
+app.post('/api/admin/google/disconnect', requireAdmin, async (req, res) => {
+  await analytics.disconnectGoogle();
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/google/properties', requireAdmin, async (req, res) => {
+  res.json(await analytics.googleProperties());
+});
+
 app.get('/api/admin/projects/:id/analytics', requireAdmin, (req, res) => {
   const p = getProject(req.params.id);
   res.json({
     settings: analytics.getSettings(p.id),
     serviceAccount: analytics.serviceAccount()?.client_email || null,
+    google: { ...analytics.googleIdentity(), oauthConfigured: Boolean(analytics.oauthClient()), redirectUri: googleRedirectUri(req) },
     semrushConfigured: Boolean(process.env.SEMRUSH_API_KEY),
     dashboard: analytics.dashboard(p.id, { forAdmin: true }),
   });

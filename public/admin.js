@@ -376,20 +376,68 @@ async function renderPerformanceAdmin(body) {
   const semBtn = h('button', { class: 'btn' }, '↻ Fetch SEMrush rankings');
   semBtn.addEventListener('click', () => sync(semBtn, 'semrush'));
 
-  const sa = data.serviceAccount;
+  const g = data.google || {};
+  const note = (...kids) => h('div', { class: 'small', style: { background: 'var(--amber)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: '10px', display: 'grid', gap: '6px' } }, ...kids);
+  const copyBox = (text) => h('div', { class: 'linkbox' }, h('code', null, text), h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(text).then(() => toast('Copied.'), () => {}) }, 'Copy'));
+  let access;
+  if (g.mode === 'oauth') {
+    access = h('div', { class: 'small', style: { display: 'grid', gap: '8px' } },
+      h('div', { class: 'row-flex' },
+        h('span', { class: 'chip', style: { background: 'var(--ok)', color: 'var(--ok-ink)' } }, '✓ Connected'),
+        h('span', null, 'Reading data as ', h('strong', null, g.email || 'your Google account')),
+        h('button', {
+          class: 'btn sm ghost danger',
+          onclick: async () => {
+            if (!confirm('Disconnect Google? Dashboards keep the numbers already synced, but daily updates stop until you connect again.')) return;
+            await api('POST', '/api/admin/google/disconnect'); toast('Google disconnected.'); refresh();
+          },
+        }, 'Disconnect')),
+      h('div', { class: 'muted' }, 'This account needs access to the client’s GA4 property (Viewer) and Search Console property. Ask the client to add ', h('strong', null, g.email || 'it'), ' if it is not listed below.'));
+  } else if (g.oauthConfigured) {
+    access = h('div', { class: 'row-flex' },
+      h('a', { class: 'btn primary', href: `/api/admin/google/connect?project=${p.id}` }, 'Connect Google account'),
+      h('span', { class: 'muted small' }, 'Sign in once with the Google account that can see your clients’ GA4 and Search Console.'),
+      g.mode === 'service' ? h('span', { class: 'muted small' }, `Currently using the service account ${g.email}.`) : null);
+  } else if (g.mode === 'service') {
+    access = h('div', { class: 'small', style: { display: 'grid', gap: '6px' } },
+      h('div', null, 'Ask the client to add this email as a ', h('strong', null, 'Viewer'), ' in GA4 (Admin → Property access management) and as a ', h('strong', null, 'Restricted user'), ' in Search Console (Settings → Users and permissions):'),
+      copyBox(g.email));
+  } else {
+    access = note(
+      h('div', null, h('strong', null, 'Google is not connected yet.'), ' One-time setup in Google Cloud (console.cloud.google.com):'),
+      h('ol', { style: { margin: 0, paddingLeft: '20px', display: 'grid', gap: '4px' } },
+        h('li', null, 'APIs & Services → Library: enable “Google Analytics Data API”, “Google Search Console API” and “Google Analytics Admin API”.'),
+        h('li', null, 'OAuth consent screen (Google Auth Platform): choose ', h('strong', null, 'Internal'), ', app name “Review Portal”, your email as support contact.'),
+        h('li', null, 'Clients → Create client → ', h('strong', null, 'Web application'), '. Under “Authorised redirect URIs” add:'),
+        copyBox(g.redirectUri || `${location.origin}/api/admin/google/callback`),
+        h('li', null, 'Copy the Client ID and Client secret into Railway → Variables as ', h('code', null, 'GOOGLE_CLIENT_ID'), ' and ', h('code', null, 'GOOGLE_CLIENT_SECRET'), '. After Railway redeploys, a “Connect Google account” button appears here.')));
+  }
+
+  const ga4List = h('datalist', { id: 'pf-ga4-list' });
+  const gscList = h('datalist', { id: 'pf-gsc-list' });
+  ga4.setAttribute('list', 'pf-ga4-list');
+  gsc.setAttribute('list', 'pf-gsc-list');
+  const pickNote = h('div', { class: 'muted small' });
+  if (g.mode === 'oauth') {
+    pickNote.textContent = 'Loading the properties this account can see…';
+    api('GET', '/api/admin/google/properties').then((r) => {
+      ga4List.replaceChildren(...r.ga4.map((x) => h('option', { value: x.id }, x.name)));
+      gscList.replaceChildren(...r.gsc.map((x) => h('option', { value: x })));
+      const parts = [];
+      if (r.gsc.length || r.ga4.length) parts.push(`Found ${r.gsc.length} Search Console and ${r.ga4.length} GA4 ${r.ga4.length === 1 ? 'property' : 'properties'}. Click a box to pick from the list.`);
+      else parts.push('This account cannot see any GA4 or Search Console properties yet.');
+      pickNote.textContent = [...parts, ...r.errors].join(' ');
+    }, (err) => { pickNote.textContent = err.message; });
+  }
+
   const googleCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
     h('h3', { style: { margin: 0 } }, '📊 Google Analytics 4 & Search Console'),
-    sa
-      ? h('div', { class: 'small', style: { display: 'grid', gap: '6px' } },
-        h('div', null, 'Ask the client to add this email as a ', h('strong', null, 'Viewer'), ' in GA4 (Admin → Property access management) and as a ', h('strong', null, 'Restricted user'), ' in Search Console (Settings → Users and permissions):'),
-        h('div', { class: 'linkbox' }, h('code', null, sa), h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(sa).then(() => toast('Copied.'), () => {}) }, 'Copy')))
-      : h('div', { class: 'small', style: { background: 'var(--amber)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: '10px' } },
-        'Google is not connected yet. Create a service account in Google Cloud (enable the “Google Analytics Data API” and “Google Search Console API”), download its JSON key, and paste the whole JSON into a Railway variable named ',
-        h('code', null, 'GOOGLE_SERVICE_ACCOUNT_JSON'), '. Its email then appears here to share with each client.'),
+    access, ga4List, gscList,
     h('div', { class: 'two-col' },
       h('label', { class: 'field' }, 'GA4 property ID', ga4),
       h('label', { class: 'field' }, 'Search Console property', gsc),
       h('label', { class: 'field' }, 'Campaign start month (for “since we started” growth)', start)),
+    g.mode === 'oauth' ? pickNote : null,
     h('div', { class: 'row-flex' }, saveBtn, syncBtn,
       s.lastSync ? h('span', { class: 'muted small' }, `Last synced ${timeAgo(s.lastSync.replace('T', ' ').slice(0, 19))}. Data refreshes daily.`) : null),
     (s.lastErrors || []).length ? h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, s.lastErrors.join(' · ')) : null);
@@ -556,6 +604,13 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 window.addEventListener('hashchange', () => { if (A.authed) route(); });
 (async function init() {
+  // Coming back from "Connect Google account".
+  const q = new URLSearchParams(location.search);
+  if (q.get('google')) {
+    if (q.get('google') === 'connected') toast(`Google connected${q.get('msg') ? ` as ${q.get('msg')}` : ''}.`);
+    else toast(q.get('msg') || 'Google could not be connected.', true);
+    history.replaceState(null, '', `/admin${location.hash}`);
+  }
   const me = await api('GET', '/api/admin/me');
   A.agency = me.agency;
   A.authed = me.admin;

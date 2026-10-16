@@ -132,3 +132,59 @@ test('imports monthly business numbers and Search Console exports from Excel', a
 test('parses SEMrush errors clearly', () => {
   assert.throws(() => analytics.parseSemrush('ERROR 50 :: NOTHING FOUND'), /SEMrush: ERROR 50/);
 });
+
+test('reads Google data through a connected Google account instead of a key', async () => {
+  process.env.GOOGLE_CLIENT_ID = 'client-id';
+  process.env.GOOGLE_CLIENT_SECRET = 'client-secret';
+  analytics.setSecret('test-secret');
+  const pid = project();
+  analytics.saveSettings(pid, { gscSite: 'sc-domain:example.com' });
+
+  const grants = [];
+  const auth = [];
+  const fakeFetch = async (url, opts = {}) => {
+    const json = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
+    if (url === 'https://oauth2.googleapis.com/token') {
+      const b = new URLSearchParams(opts.body);
+      grants.push(b.get('grant_type'));
+      if (b.get('grant_type') === 'authorization_code') {
+        assert.equal(b.get('code'), 'the-code');
+        const idToken = `x.${Buffer.from(JSON.stringify({ email: 'seo@hubsolutions.one' })).toString('base64url')}.y`;
+        return json({
+          access_token: 'first', expires_in: 1, refresh_token: 'refresh-123', id_token: idToken,
+          scope: 'openid email https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly',
+        });
+      }
+      assert.equal(b.get('refresh_token'), 'refresh-123');
+      return json({ access_token: 'refreshed', expires_in: 3600 });
+    }
+    if (url.startsWith('https://oauth2.googleapis.com/revoke')) { grants.push('revoke'); return json({}); }
+    auth.push(opts.headers.Authorization);
+    if (url.endsWith('/webmasters/v3/sites')) return json({ siteEntry: [{ siteUrl: 'sc-domain:example.com', permissionLevel: 'siteFullUser' }] });
+    if (url.includes('accountSummaries')) return json({ accountSummaries: [{ displayName: 'Hearing Room', propertySummaries: [{ property: 'properties/987', displayName: 'Website' }] }] });
+    if (url.includes('searchAnalytics')) return json({ rows: [] });
+    throw new Error(`unexpected ${url}`);
+  };
+
+  const url = new URL(analytics.googleAuthUrl('https://portal.test/api/admin/google/callback', 'state-1'));
+  assert.equal(url.searchParams.get('access_type'), 'offline');
+  assert.match(url.searchParams.get('scope'), /webmasters\.readonly/);
+
+  assert.equal(await analytics.connectGoogle('the-code', 'https://portal.test/api/admin/google/callback', fakeFetch), 'seo@hubsolutions.one');
+  assert.deepEqual(analytics.googleIdentity().mode, 'oauth');
+  const stored = db.prepare("SELECT value FROM app_settings WHERE key = 'google_oauth'").get().value;
+  assert.ok(!stored.includes('refresh-123'), 'refresh token is stored encrypted');
+
+  const r = await analytics.syncProject(pid, { only: 'gsc', fetchImpl: fakeFetch });
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(grants, ['authorization_code', 'refresh_token']);
+  assert.ok(auth.every((a) => a === 'Bearer refreshed'));
+
+  const props = await analytics.googleProperties(fakeFetch);
+  assert.deepEqual(props.gsc, ['sc-domain:example.com']);
+  assert.deepEqual(props.ga4, [{ id: '987', name: 'Website (Hearing Room)' }]);
+
+  await analytics.disconnectGoogle(fakeFetch);
+  assert.equal(grants.at(-1), 'revoke');
+  assert.equal(analytics.googleIdentity().mode, 'service', 'falls back to the service account');
+});
