@@ -137,6 +137,13 @@ function renderProject() {
 
 const refresh = async () => { await loadProject(A.current.project.id); renderProject(); };
 
+// Campaign phase an upload belongs to (blank = all phases).
+function phaseSelect(value) {
+  return h('select', { class: 'select', 'aria-label': 'Phase', style: { width: 'auto' } },
+    h('option', { value: '' }, 'All phases'),
+    [1, 2, 3, 4, 5, 6].map((n) => h('option', { value: n, selected: Number(value) === n }, `Phase ${n}`)));
+}
+
 /* ---------- content ---------- */
 
 function renderContent(body) {
@@ -158,7 +165,7 @@ function renderContent(body) {
       continue;
     }
     body.append(h('div', { class: 'card', style: { overflowX: 'auto' } }, h('table', { class: 'plain' },
-      h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Report month'), h('th', null, 'Items'), h('th', null, 'Uploaded'), h('th', null, 'Source file'), h('th', null, ''))),
+      h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'Report month'), h('th', null, 'Phase'), h('th', null, 'Items'), h('th', null, 'Uploaded'), h('th', null, 'Source file'), h('th', null, ''))),
       h('tbody', null, list.map((d) => datasetRow(d, p))))));
   }
 }
@@ -168,6 +175,7 @@ function datasetRow(d, p) {
   const show = () => tr.replaceChildren(
     h('td', null, h('strong', null, d.name), d.kind === 'doc' ? h('span', { class: 'chip', style: { marginLeft: '8px' } }, 'Document') : null),
     h('td', null, d.period || h('span', { class: 'muted' }, '—')),
+    h('td', null, d.phase ? `Phase ${d.phase}` : h('span', { class: 'muted' }, 'All')),
     h('td', null, d.item_count),
     h('td', { class: 'muted small nowrap', title: fullDate(d.created_at) }, timeAgo(d.created_at)),
     h('td', { class: 'muted small' }, d.source_file),
@@ -186,16 +194,17 @@ function datasetRow(d, p) {
   const edit = () => {
     const name = h('input', { class: 'input', value: d.name });
     const period = h('input', { class: 'input', value: d.period, placeholder: 'e.g. Oct 2026' });
+    const phase = phaseSelect(d.phase);
     const tab = h('select', { class: 'select', disabled: d.kind === 'doc' }, TAB_ORDER.map((t) => h('option', { value: t, selected: t === d.tab }, TAB_META[t].label)));
     tr.replaceChildren(
-      h('td', null, name), h('td', null, period), h('td', { colspan: 3 }, tab),
+      h('td', null, name), h('td', null, period), h('td', null, phase), h('td', { colspan: 3 }, tab),
       h('td', { class: 'nowrap', style: { textAlign: 'right' } },
         h('button', { class: 'btn sm ghost', onclick: show }, 'Cancel'),
         h('button', {
           class: 'btn sm primary',
           onclick: async () => {
             try {
-              await api('PATCH', `/api/admin/datasets/${d.id}`, { name: name.value, period: period.value, tab: tab.value });
+              await api('PATCH', `/api/admin/datasets/${d.id}`, { name: name.value, period: period.value, phase: phase.value, tab: tab.value });
               toast('Saved.');
               refresh();
             } catch (err) { toast(err.message, true); }
@@ -252,19 +261,20 @@ function renderUpload(body) {
         TAB_ORDER.map((t) => h('option', { value: t, selected: t === s.suggestedTab }, TAB_META[t].label)));
       const name = h('input', { class: 'input', value: s.name, maxlength: 120 });
       const period = h('input', { class: 'input', value: prev.period, maxlength: 60, style: { maxWidth: '130px' } });
+      const phase = phaseSelect('');
       return {
-        s, tab, name, period,
+        s, tab, name, period, phase,
         tr: h('tr', null,
           h('td', null, h('strong', null, s.name), s.title ? h('div', { class: 'muted small' }, s.title) : null,
             s.existingVersion ? h('div', { class: 'small', style: { color: 'var(--mint-ink)' } }, '↻ New month for an existing sheet') : null),
           h('td', null, s.rowCount),
           h('td', { class: 'cols-preview' }, s.columns.slice(0, 8).join(' · '), s.columns.length > 8 ? ` · +${s.columns.length - 8} more` : ''),
-          h('td', null, tab), h('td', null, name), h('td', null, period)),
+          h('td', null, tab), h('td', null, name), h('td', null, period), h('td', null, phase)),
       };
     });
     const importBtn = h('button', { class: 'btn primary' }, 'Import selected sheets');
     importBtn.addEventListener('click', async () => {
-      const sheets = rows.filter((r) => r.tab.value !== 'skip').map((r) => ({ index: r.s.index, tab: r.tab.value, name: r.name.value, period: r.period.value }));
+      const sheets = rows.filter((r) => r.tab.value !== 'skip').map((r) => ({ index: r.s.index, tab: r.tab.value, name: r.name.value, period: r.period.value, phase: r.phase.value }));
       if (!sheets.length) { toast('Choose a tab for at least one sheet.', true); return; }
       importBtn.disabled = true;
       try {
@@ -276,7 +286,7 @@ function renderUpload(body) {
     excelArea.replaceChildren(
       h('div', { class: 'muted small', style: { marginBottom: '8px' } }, `File: ${prev.filename}`),
       h('div', { style: { overflowX: 'auto' } }, h('table', { class: 'plain' },
-        h('thead', null, h('tr', null, h('th', null, 'Sheet'), h('th', null, 'Rows'), h('th', null, 'Columns'), h('th', null, 'Show in tab'), h('th', null, 'Name shown to client'), h('th', null, 'Report month'))),
+        h('thead', null, h('tr', null, h('th', null, 'Sheet'), h('th', null, 'Rows'), h('th', null, 'Columns'), h('th', null, 'Show in tab'), h('th', null, 'Name shown to client'), h('th', null, 'Report month'), h('th', null, 'Phase'))),
         h('tbody', null, rows.map((r) => r.tr)))),
       h('div', { class: 'row-flex', style: { justifyContent: 'flex-end', marginTop: '14px' } },
         h('button', { class: 'btn ghost', onclick: showDrop }, 'Choose another file'), importBtn));
@@ -286,11 +296,13 @@ function renderUpload(body) {
   const docArea = h('div');
   const period = h('input', { class: 'input', placeholder: 'Report month, e.g. Oct 2026', value: new Date().toLocaleString('en-GB', { month: 'short', year: 'numeric' }) });
   const docName = h('input', { class: 'input', placeholder: 'Name shown to client (defaults to the document title)' });
+  const docPhase = phaseSelect('');
   const showDocDrop = () => docArea.replaceChildren(dropzone('.docx', 'Drop a .docx file or click to choose', 'Same format as “Blog Articles for Review”.', async (file) => {
     docArea.replaceChildren(h('div', { class: 'spinner' }));
     const fd = new FormData();
     fd.append('file', file);
     fd.append('period', period.value);
+    fd.append('phase', docPhase.value);
     fd.append('name', docName.value);
     try {
       const r = await api('POST', `/api/admin/projects/${p.id}/docx`, fd);
@@ -304,7 +316,7 @@ function renderUpload(body) {
     h('p', { class: 'muted small', style: { marginTop: 0 } },
       'Each “Article 1: …”, “Article 2: …” heading becomes its own article with its SEO details table. ',
       '“For your review” checkbox items (☐) become points the client confirms one by one. Images and keyword highlights are kept.'),
-    h('div', { class: 'two-col', style: { marginBottom: '12px' } }, docName, period),
+    h('div', { class: 'two-col', style: { marginBottom: '12px' } }, docName, h('div', { class: 'row-flex', style: { flexWrap: 'nowrap' } }, period, docPhase)),
     docArea);
 
   body.append(h('div', { style: { display: 'grid', gap: '18px' } }, excel, doc));

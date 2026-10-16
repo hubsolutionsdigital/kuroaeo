@@ -95,7 +95,7 @@ function getProject(id) {
 
 function listDatasets(projectId) {
   return db.prepare(`
-    SELECT d.id, d.tab, d.name, d.period, d.kind, d.source_file, d.created_at,
+    SELECT d.id, d.tab, d.name, d.period, d.phase, d.kind, d.source_file, d.created_at,
            (SELECT COUNT(*) FROM items i WHERE i.dataset_id = d.id) AS item_count
     FROM datasets d WHERE d.project_id = ? ORDER BY d.tab, d.name, d.id DESC
   `).all(projectId);
@@ -150,7 +150,7 @@ function getDatasetPayload(projectId, datasetId) {
 
   return {
     dataset: {
-      id: d.id, tab: d.tab, name: d.name, period: d.period, kind: d.kind, created_at: d.created_at,
+      id: d.id, tab: d.tab, name: d.name, period: d.period, phase: d.phase, kind: d.kind, created_at: d.created_at,
       columns: parseJSON(d.columns, []), meta: parseJSON(d.meta, {}),
       primary: d.kind === 'table' ? primaryColumn(parseJSON(d.columns, []), d.tab) : null,
     },
@@ -159,10 +159,13 @@ function getDatasetPayload(projectId, datasetId) {
   };
 }
 
-function insertDataset(projectId, { tab, name, period, kind, columns = [], meta = {}, source }) {
+// Optional campaign phase (1-12) an upload belongs to, e.g. the blogs for Phase 2.
+const phaseOf = (v) => { const n = parseInt(v, 10); return n >= 1 && n <= 12 ? n : null; };
+
+function insertDataset(projectId, { tab, name, period, phase = null, kind, columns = [], meta = {}, source }) {
   const r = db.prepare(`
-    INSERT INTO datasets (project_id, tab, name, period, kind, columns, meta, source_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(projectId, tab, name, period, kind, JSON.stringify(columns), JSON.stringify(meta), source || '');
+    INSERT INTO datasets (project_id, tab, name, period, phase, kind, columns, meta, source_file) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(projectId, tab, name, period, phase, kind, JSON.stringify(columns), JSON.stringify(meta), source || '');
   return Number(r.lastInsertRowid);
 }
 
@@ -170,9 +173,9 @@ const insertItem = () => db.prepare(`
   INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-function importSheet(projectId, sheet, { tab, name, period, source }) {
+function importSheet(projectId, sheet, { tab, name, period, phase, source }) {
   const datasetId = insertDataset(projectId, {
-    tab, name, period, kind: 'table', columns: sheet.columns, meta: { title: sheet.title || '' }, source,
+    tab, name, period, phase, kind: 'table', columns: sheet.columns, meta: { title: sheet.title || '' }, source,
   });
   const pi = primaryColumn(sheet.columns, tab);
   const seen = new Map();
@@ -188,9 +191,9 @@ function importSheet(projectId, sheet, { tab, name, period, source }) {
   return datasetId;
 }
 
-function importBlogDoc(projectId, doc, { name, period, source }) {
+function importBlogDoc(projectId, doc, { name, period, phase, source }) {
   const datasetId = insertDataset(projectId, {
-    tab: 'blogs', name, period, kind: 'doc', meta: { title: doc.title, introHtml: doc.introHtml }, source,
+    tab: 'blogs', name, period, phase, kind: 'doc', meta: { title: doc.title, introHtml: doc.introHtml }, source,
   });
   const stmt = insertItem();
   let pos = 0;
@@ -310,6 +313,7 @@ app.post('/api/admin/projects/:id/excel/import', requireAdmin, (req, res) => {
         tab: c.tab,
         name: str(c.name, 120) || sheet.name,
         period: str(c.period, 60) || defaultPeriod(),
+        phase: phaseOf(c.phase),
         source: pending.filename,
       }));
     }
@@ -333,6 +337,7 @@ app.post('/api/admin/projects/:id/docx', requireAdmin, upload.single('file'), as
   const id = transaction(() => importBlogDoc(project.id, doc, {
     name: str(req.body?.name, 120) || doc.title,
     period: str(req.body?.period, 60) || defaultPeriod(),
+    phase: phaseOf(req.body?.phase),
     source: req.file.originalname,
   }));
   res.json({ ok: true, id, articles: doc.articles.length, checks: doc.checks.length });
@@ -351,9 +356,10 @@ app.patch('/api/admin/datasets/:id', requireAdmin, (req, res) => {
   if (!TABS.includes(tab)) throw new HttpError(400, 'Unknown tab.');
   if (tab !== d.tab && d.kind === 'doc') throw new HttpError(400, 'Blog documents stay in the Blogs tab.');
   transaction(() => {
-    db.prepare('UPDATE datasets SET name = ?, period = ?, tab = ? WHERE id = ?').run(
+    db.prepare('UPDATE datasets SET name = ?, period = ?, phase = ?, tab = ? WHERE id = ?').run(
       b.name !== undefined ? (str(b.name, 120) || d.name) : d.name,
       b.period !== undefined ? str(b.period, 60) : d.period,
+      b.phase !== undefined ? phaseOf(b.phase) : d.phase,
       tab, d.id,
     );
     if (tab !== d.tab) {

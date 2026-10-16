@@ -17,6 +17,8 @@ const S = {
   docSection: {}, // dataset id -> 'overview' | item_key
   selected: {}, // dataset id -> Set of selected item keys
   peek: {}, // tabs the client chose to open before finishing earlier steps
+  rankPhase: {}, // dataset id -> 'all' | phase number shown in a ranking sheet
+  tabPhase: {}, // tab -> 'all' | phase number of uploads shown (e.g. blogs per phase)
 };
 
 function getName() {
@@ -217,8 +219,8 @@ function stepFooter() {
     next ? h('button', { class: 'btn primary', onclick: () => goStep(next.t) }, `Next step: ${TAB_META[next.t].label} →`) : null);
 }
 
-function groupsFor(tab) {
-  const list = S.datasets.filter((x) => x.tab === tab);
+function groupsFor(tab, phase = 'all') {
+  const list = S.datasets.filter((x) => x.tab === tab && (phase === 'all' || !x.phase || x.phase === phase));
   // Sheets appear in the order they were first uploaded; versions newest first.
   const firstId = {};
   for (const d of list) firstId[d.name] = Math.min(firstId[d.name] ?? Infinity, d.id);
@@ -231,10 +233,17 @@ function groupsFor(tab) {
   return groups;
 }
 
+function tabPhases(tab) {
+  return [...new Set(S.datasets.filter((d) => d.tab === tab && d.phase).map((d) => d.phase))].sort((a, b) => a - b);
+}
+
 async function renderTabBody(keepScroll) {
   const body = document.getElementById('tabbody');
   const scroll = keepScroll ? { y: window.scrollY, ...tableScroll() } : null;
-  const groups = groupsFor(S.tab);
+  const phasesHere = tabPhases(S.tab);
+  if (phasesHere.length && S.tabPhase[S.tab] === undefined) S.tabPhase[S.tab] = phasesHere[phasesHere.length - 1];
+  const tabPhaseSel = phasesHere.length ? S.tabPhase[S.tab] : 'all';
+  const groups = groupsFor(S.tab, tabPhaseSel);
   const st = steps().find((x) => x.t === S.tab);
   if (!groups.size) {
     const prev = steps().filter((x) => x.has && TAB_ORDER.indexOf(x.t) < TAB_ORDER.indexOf(S.tab));
@@ -267,7 +276,14 @@ async function renderTabBody(keepScroll) {
   const versions = groups.get(sel.name);
   if (!versions.some((v) => v.id === sel.id)) sel.id = versions[0].id;
 
-  const head = h('div', { class: 'toolbar' },
+  const phaseSeg = phasesHere.length ? h('div', { class: 'phase-bar', style: { marginBottom: '12px' } },
+    h('span', { class: 'phase-bar-label' }, 'Phase'),
+    h('div', { class: 'seg' },
+      phasesHere.map((n) => {
+        return h('button', { class: tabPhaseSel === n ? 'active' : '', onclick: () => { S.tabPhase[S.tab] = n; S.sel[S.tab] = null; renderTabBody(); } }, `Phase ${n}`);
+      }),
+      h('button', { class: tabPhaseSel === 'all' ? 'active' : '', onclick: () => { S.tabPhase[S.tab] = 'all'; S.sel[S.tab] = null; renderTabBody(); } }, 'All phases'))) : null;
+  const head = h('div', null, phaseSeg, h('div', { class: 'toolbar' },
     h('div', { class: 'left' },
       groups.size > 1
         ? h('div', { class: 'seg' }, [...groups.keys()].map((name) => h('button', {
@@ -283,7 +299,7 @@ async function renderTabBody(keepScroll) {
             s.addEventListener('change', () => { sel.id = Number(s.value); renderTabBody(); });
             return s;
           })())
-        : (versions[0].period ? h('span', { class: 'chip' }, `📅 ${versions[0].period}`) : null)));
+        : (versions[0].period ? h('span', { class: 'chip' }, `📅 ${versions[0].period}`) : null))));
 
   let payload = S.cache[sel.id];
   if (!payload) {
@@ -358,17 +374,102 @@ function analyseColumns(payload) {
   const actual = cols.map((c, i) => (COLS.actualRank.test(c) ? i : -1)).filter((i) => i >= 0);
   const projected = cols.map((c, i) => (!actual.includes(i) && COLS.projected.test(c) ? i : -1)).filter((i) => i >= 0);
   const volume = cols.findIndex((c) => COLS.volume.test(c) && !/band/i.test(c));
-  const withData = actual.filter(hasData);
+  // Phase view: only the columns that belong to the chosen phase, plus the
+  // baseline ranking. Actual-ranking columns appear once that month is reported.
+  const P = rankPhases(cols, actual, projected);
+  let phaseSel = 'all';
+  if (P.phases.length >= 2) {
+    const saved = S.rankPhase[dataset.id];
+    const reported = P.phases.filter((ph) => ph.actualCols.some(hasData));
+    phaseSel = saved !== undefined ? saved : (reported.length ? reported[reported.length - 1].n : 'all');
+    if (phaseSel !== 'all' && !P.phases.some((ph) => ph.n === phaseSel)) phaseSel = 'all';
+  }
+  const inPhase = (c) => {
+    if (P.baseline.includes(c)) return true;
+    if (phaseSel === 'all') return true;
+    const ph = P.phases.find((x) => x.n === phaseSel);
+    return ph.projCols.includes(c) || ph.actualCols.includes(c);
+  };
+  const rankHidden = new Set([
+    ...actual.filter((c) => !P.baseline.includes(c) && !hasData(c)),
+    ...[...actual, ...projected].filter((c) => !inPhase(c)),
+  ]);
+  const shownActual = actual.filter((c) => !rankHidden.has(c));
+  const shownProjected = projected.filter((c) => !rankHidden.has(c));
+  const withData = shownActual.filter(hasData);
   const latest = withData.length ? withData[withData.length - 1] : -1;
   // Only compare a ranking with an earlier one from the same series, so
   // "Google Ranking" is never compared with "ChatGPT Ranking".
   const series = (c) => rankSeries(cols[c]);
   const sameSeries = withData.filter((c) => c !== latest && c < latest && series(c) === series(latest));
   const prevCol = latest >= 0 && sameSeries.length ? sameSeries[sameSeries.length - 1] : -1;
-  const visible = cols.map((_, i) => i).filter((i) => i === dataset.primary || i === numIdx || actual.includes(i) || projected.includes(i) || hasData(i));
+  const visible = cols.map((_, i) => i).filter((i) => !rankHidden.has(i)
+    && (i === dataset.primary || i === numIdx || shownActual.includes(i) || shownProjected.includes(i) || hasData(i)));
   const userHidden = hiddenCols(dataset);
   const shownCols = visible.filter((c) => c === dataset.primary || c === numIdx || !userHidden.has(cols[c]));
-  return { cols, numIdx, actual, projected, volume, latest, prevCol, visible: shownCols, allVisible: visible, hidden: cols.length - visible.length };
+  const emptyHidden = cols.filter((_, i) => !visible.includes(i) && !rankHidden.has(i)).length;
+  return {
+    cols, numIdx, actual: shownActual, projected: shownProjected, volume, latest, prevCol,
+    visible: shownCols, allVisible: visible, hidden: emptyHidden, phases: P.phases, phaseSel, targetFor: P.targetFor, hasData,
+  };
+}
+
+// Group ranking columns into campaign phases from their headers:
+// "Phase 2 (Month 2-3)" is a projection for months 2-3, "Actual Ranking (Month 3)"
+// is the month-3 report, and unlabelled "Month 6", "Month 7"… after the last
+// phase form the next phase. "Existing Ranking" is the baseline shown everywhere.
+function rankPhases(cols, actual, projected) {
+  const monthsOf = (h) => {
+    const m = h.match(/month\s*(\d+)(?:\s*[-–]\s*(\d+))?/i);
+    return m ? [Number(m[1]), Number(m[2] || m[1])] : null;
+  };
+  const phases = [];
+  const extra = [];
+  for (const c of projected) {
+    const ph = cols[c].match(/phase\s*(\d+)/i);
+    const months = monthsOf(cols[c]);
+    if (ph) {
+      let p = phases.find((x) => x.n === Number(ph[1]));
+      if (!p) { p = { n: Number(ph[1]), from: months ? months[0] : null, to: months ? months[1] : null, projCols: [], actualCols: [] }; phases.push(p); }
+      p.projCols.push(c);
+    } else if (months) extra.push({ c, months });
+  }
+  for (const { c, months } of extra) {
+    const home = phases.find((p) => p.from !== null && months[0] >= p.from && months[0] <= p.to);
+    if (home) { home.projCols.push(c); continue; }
+    let next = phases.find((p) => p.extra);
+    if (!next) {
+      next = { n: Math.max(0, ...phases.map((p) => p.n)) + 1, from: months[0], to: months[1], projCols: [], actualCols: [], extra: true };
+      phases.push(next);
+    }
+    next.from = Math.min(next.from, months[0]);
+    next.to = Math.max(next.to, months[1]);
+    next.projCols.push(c);
+  }
+  phases.sort((a, b) => a.n - b.n);
+  const baseline = [];
+  const targetFor = {};
+  for (const c of actual) {
+    const months = monthsOf(cols[c]);
+    const home = months && phases.find((p) => p.from !== null && months[0] >= p.from && months[0] <= p.to);
+    if (home) {
+      home.actualCols.push(c);
+      const proj = home.projCols.find((pc) => { const pm = monthsOf(cols[pc]); return pm && months[0] >= pm[0] && months[0] <= pm[1]; }) ?? home.projCols[0];
+      if (proj !== undefined) targetFor[c] = proj;
+    } else baseline.push(c);
+  }
+  return { phases, baseline, targetFor };
+}
+
+function phaseLabel(ph) {
+  if (ph.from === null) return `Phase ${ph.n}`;
+  return `Phase ${ph.n} · ${ph.from === ph.to ? `Month ${ph.from}` : `Months ${ph.from}–${ph.to}`}`;
+}
+
+// Upper end of a projected range: "12-25" -> 25, "8" -> 8.
+function rangeTop(v) {
+  const nums = String(v ?? '').match(/\d+/g);
+  return nums ? Math.max(...nums.map(Number)) : null;
 }
 
 const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec';
@@ -439,6 +540,9 @@ function renderCell(v, c, A, item, payload) {
   if (A.actual.includes(c)) {
     td.className = 'nowrap';
     td.append(v === null || v === undefined ? h('span', { class: 'muted' }, '–') : rankBadge(v));
+    const target = A.targetFor[c] !== undefined ? rangeTop(item.data[A.targetFor[c]]) : null;
+    const r = rankValue(v);
+    if (target !== null && r !== null && r <= target) td.append(h('span', { class: 'on-target', title: `Within our projection of ${item.data[A.targetFor[c]]}` }, '✓ on target'));
     if (c === A.latest) {
       const mv = movementFor(item, A, payload);
       if (mv) td.append(h('span', { class: `move ${mv > 0 ? 'up' : 'down'}`, title: mv > 0 ? `Up ${mv} positions` : `Down ${-mv} positions` }, `${mv > 0 ? '▲' : '▼'}${Math.abs(mv)}`));
@@ -545,6 +649,18 @@ function renderTable(payload) {
   const wrap = h('div');
 
   if (dataset.meta && dataset.meta.title) wrap.append(h('div', { class: 'muted', style: { margin: '-4px 0 12px', fontWeight: 600 } }, dataset.meta.title));
+  if (A.phases.length >= 2) {
+    const reported = (ph) => ph.actualCols.some(A.hasData);
+    wrap.append(h('div', { class: 'phase-bar' },
+      h('span', { class: 'phase-bar-label' }, 'View'),
+      h('div', { class: 'seg' },
+        h('button', { class: A.phaseSel === 'all' ? 'active' : '', onclick: () => { S.rankPhase[dataset.id] = 'all'; renderTabBody(); } }, 'Overview'),
+        A.phases.map((ph) => h('button', {
+          class: A.phaseSel === ph.n ? 'active' : '',
+          title: reported(ph) ? 'Month-end rankings reported' : 'Projection only',
+          onclick: () => { S.rankPhase[dataset.id] = ph.n; renderTabBody(); },
+        }, phaseLabel(ph), reported(ph) ? h('span', { class: 'phase-dot', 'aria-label': 'reported' }) : null)))));
+  }
   const summary = summaryFor(payload, A, fb);
   if (summary.length) {
     wrap.append(h('div', { class: 'card summary' },
@@ -770,7 +886,25 @@ function summaryFor(payload, A, fb) {
       out.push(p2);
     }
 
-    const projWithData = A.projected.filter((c) => items.some((it) => it.data[c] != null));
+    const ph = A.phaseSel !== 'all' ? A.phases.find((x) => x.n === A.phaseSel) : null;
+    if (ph) {
+      const proj = ph.projCols[ph.projCols.length - 1];
+      const reach = proj !== undefined ? items.filter((it) => inTopRange(it.data[proj])).length : 0;
+      let p3 = `You are looking at ${phaseLabel(ph).replace(' · ', ' (')}). `;
+      p3 += proj !== undefined ? `Our projection for this phase is in “${A.cols[proj]}”${reach ? `, with ${reach} keywords expected in the top 12` : ''}.` : '';
+      const reported = ph.actualCols.filter(A.hasData);
+      if (reported.length) {
+        const last = reported[reported.length - 1];
+        const t = A.targetFor[last];
+        const measured = items.filter((it) => rankValue(it.data[last]) !== null);
+        const onTarget = t !== undefined ? measured.filter((it) => { const top = rangeTop(it.data[t]); const r = rankValue(it.data[last]); return top !== null && r <= top; }).length : 0;
+        p3 += ` In “${A.cols[last]}”, ${onTarget} of ${measured.length} keywords ranked within or better than our projection (marked ✓ on target).`;
+      } else {
+        p3 += ' Month-end rankings for this phase will appear here once we report them.';
+      }
+      out.push(p3);
+    }
+    const projWithData = ph ? [] : A.projected.filter((c) => items.some((it) => it.data[c] != null));
     if (projWithData.length) {
       const lastCol = projWithData[projWithData.length - 1];
       const firstTop = projWithData.find((c) => items.some((it) => inTopRange(it.data[c])));
@@ -1058,7 +1192,7 @@ const TOUR_STEPS = [
     body: [
       'Ranking badges show where you appear on Google today. Green means you are in the top 12.',
       'Dashed ranges such as 12-25 are our projections for each month. Green ranges are projected to reach the top 12.',
-      'Each month we add your actual rankings. Use the version picker at the top right to see earlier months.',
+      'Use View to look at one phase at a time. Each phase shows our projection and, once we report the month-end results, your actual rankings, marked ✓ on target when you meet or beat the projection.',
     ],
   },
   {
