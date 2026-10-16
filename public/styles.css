@@ -435,3 +435,43 @@ table.data tr.picked td { background: #eef4fd; }
 .log-list { display: grid; gap: 10px; }
 .blk.img-fb { box-shadow: 0 0 0 3px #3f72c2; cursor: pointer; }
 .blk.img-fb::after { content: '💬 feedback'; display: inline-block; margin-top: 6px; font-size: 12px; font-weight: 700; color: var(--brand-2); }
+
+/* ---------- review / performance switch ---------- */
+.view-switch { display: inline-flex; gap: 4px; background: #e6ebf3; padding: 4px; border-radius: 14px; margin-bottom: 16px; }
+.view-switch button { border: none; background: transparent; padding: 8px 16px; border-radius: 10px; font-weight: 700; font-size: 14px; color: var(--ink-2); cursor: pointer; }
+.view-switch button.active { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(23, 33, 58, .12); }
+
+/* ---------- performance dashboard ---------- */
+.perf-stats .stat .v small { display: block; margin: 2px 0 0; }
+.stat-deltas { display: grid; gap: 2px; margin-top: 6px; font-size: 12.5px; }
+.delta { font-weight: 700; }
+.delta.up { color: #1f7a55; }
+.delta.down { color: #b23a2b; }
+.viz-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; margin-bottom: 16px; }
+.viz-card { padding: 16px 18px 12px; min-width: 0; }
+.viz-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
+.viz-head h3 { margin: 0; font-size: 15.5px; }
+.viz-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--ink-2); margin-bottom: 4px; }
+.viz-legend .sw, .viz-tip .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+svg.viz { width: 100%; height: auto; display: block; }
+svg.viz .viz-axis { font-size: 11px; fill: #7d869c; font-family: inherit; }
+svg.viz .viz-value { font-size: 12px; font-weight: 700; fill: var(--ink); font-family: inherit; }
+svg.viz .viz-hit { cursor: default; }
+svg.viz .viz-hit:hover { fill: rgba(23, 33, 58, .04); }
+.viz-tip { position: fixed; z-index: 90; background: var(--ink); color: #fff; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; pointer-events: none; box-shadow: var(--shadow-pop); max-width: 260px; }
+.viz-tip .tt-h { font-weight: 700; margin-bottom: 2px; }
+.aeo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.aeo-tile { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; }
+.aeo-tile .k { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.aeo-tile .v { font-size: 24px; font-weight: 700; }
+.aeo-tile .v small { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-left: 6px; }
+.meter { height: 8px; border-radius: 999px; background: #cde2fb; overflow: hidden; }
+.meter > div { height: 100%; background: #2a78d6; border-radius: 999px; }
+#perfbody > .card { margin-bottom: 16px; }
+.switch { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-ui { width: 40px; height: 22px; border-radius: 999px; background: #cfd6e3; position: relative; transition: background .15s; flex: none; }
+.switch-ui::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
+.switch input:checked + .switch-ui { background: var(--brand-2); }
+.switch input:checked + .switch-ui::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch-ui { outline: 2px solid var(--brand-2); outline-offset: 2px; }

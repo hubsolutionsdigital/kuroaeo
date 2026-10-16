@@ -6,6 +6,7 @@ const multer = require('multer');
 const { db, transaction } = require('./lib/db');
 const { parseWorkbook, primaryColumn, normalizeKey, TABS } = require('./lib/excel');
 const { parseBlogDoc } = require('./lib/docx');
+const analytics = require('./lib/analytics');
 
 const PORT = Number(process.env.PORT) || 3000;
 const AGENCY_NAME = process.env.AGENCY_NAME || 'Hub Solutions Digital';
@@ -444,6 +445,59 @@ app.get('/api/admin/projects/:id/feedback.csv', requireAdmin, (req, res) => {
   res.send(`﻿${lines.join('\r\n')}`);
 });
 
+// ---------- admin: performance dashboard ----------
+
+app.get('/api/admin/projects/:id/analytics', requireAdmin, (req, res) => {
+  const p = getProject(req.params.id);
+  res.json({
+    settings: analytics.getSettings(p.id),
+    serviceAccount: analytics.serviceAccount()?.client_email || null,
+    semrushConfigured: Boolean(process.env.SEMRUSH_API_KEY),
+    dashboard: analytics.dashboard(p.id, { forAdmin: true }),
+  });
+});
+
+app.put('/api/admin/projects/:id/analytics', requireAdmin, (req, res) => {
+  const p = getProject(req.params.id);
+  const b = req.body || {};
+  const cur = analytics.getSettings(p.id);
+  const start = analytics.toMonth(b.start);
+  analytics.saveSettings(p.id, {
+    ...cur,
+    ga4Property: str(b.ga4Property, 40).replace(/[^0-9]/g, ''),
+    gscSite: str(b.gscSite, 200),
+    start: start || null,
+    semrush: {
+      enabled: Boolean(b.semrush && b.semrush.enabled),
+      clientToggle: Boolean(b.semrush && b.semrush.clientToggle),
+      domain: str(b.semrush && b.semrush.domain, 200),
+      database: str(b.semrush && b.semrush.database, 10).toLowerCase() || 'sg',
+    },
+  });
+  res.json({ ok: true, settings: analytics.getSettings(p.id) });
+});
+
+app.post('/api/admin/projects/:id/analytics/sync', requireAdmin, async (req, res) => {
+  const p = getProject(req.params.id);
+  res.json(await analytics.syncProject(p.id, { only: req.body?.only }));
+});
+
+app.post('/api/admin/projects/:id/analytics/upload', requireAdmin, upload.single('file'), async (req, res) => {
+  const p = getProject(req.params.id);
+  if (!req.file || !/\.xlsx$/i.test(req.file.originalname)) throw new HttpError(400, 'Choose an Excel file (.xlsx).');
+  let sheets;
+  try { sheets = await parseWorkbook(req.file.buffer); } catch { throw new HttpError(400, 'That file could not be read as an Excel workbook.'); }
+  const r = analytics.importMetricSheets(p.id, sheets);
+  if (!r.count) throw new HttpError(400, 'No monthly numbers found. Use a sheet with a Month column (e.g. "Oct 2026") and one column per number, or a Search Console "Dates" export.');
+  res.json({ ok: true, ...r });
+});
+
+app.delete('/api/admin/projects/:id/analytics/metrics', requireAdmin, (req, res) => {
+  const p = getProject(req.params.id);
+  db.prepare('DELETE FROM metrics WHERE project_id = ? AND source = ? AND metric = ?').run(p.id, str(req.body?.source, 20), str(req.body?.metric, 60));
+  res.json({ ok: true });
+});
+
 // ---------- client (link-only access) ----------
 
 function projectByToken(token) {
@@ -468,6 +522,11 @@ app.get('/api/c/:token', (req, res) => {
 app.get('/api/c/:token/datasets/:id', (req, res) => {
   const p = projectByToken(req.params.token);
   res.json(getDatasetPayload(p.id, req.params.id));
+});
+
+app.get('/api/c/:token/analytics', (req, res) => {
+  const p = projectByToken(req.params.token);
+  res.json(analytics.dashboard(p.id));
 });
 
 app.get('/api/c/:token/feedback', (req, res) => {
@@ -603,6 +662,7 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
   app.listen(PORT, () => console.log(`Review portal running on http://localhost:${PORT}`));
+  analytics.startScheduler();
 }
 
 module.exports = app;

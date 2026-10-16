@@ -31,6 +31,8 @@ ADMIN_PASSWORD='choose-a-strong-password' npm start
 | `DATA_DIR` | `./data` | Where the SQLite database lives. Keep it on a persistent disk |
 | `PORT` | `3000` | HTTP port |
 | `SESSION_SECRET` | derived from the password | Signs the admin login cookie |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | — | Google service account key (the whole JSON, or base64 of it) for GA4 and Search Console |
+| `SEMRUSH_API_KEY` | — | Optional: daily live rankings from SEMrush |
 
 Docker: `docker build -t review-portal . && docker run -p 3000:3000 -e ADMIN_PASSWORD=… -v portal-data:/data review-portal`.
 
@@ -63,3 +65,22 @@ Tests: `npm test`.
 
 - Client links are unguessable random tokens (`/p/<token>`). Pages are served with `noindex` and `no-referrer`. If a link was shared too widely, go to **Settings → Create a new link**. The old link stops working immediately.
 - Clients can only read their own project and add feedback. All admin routes require the team password.
+
+## Performance dashboard
+
+Clients switch between **✅ Review** and **📈 Performance**. The Performance view shows growth tiles, a plain-English summary and monthly charts:
+
+- **Google Search Console:** clicks and impressions, plus each tracked keyword's average position and clicks over the last 28 days.
+- **Google Analytics 4:** organic sessions, key events (enquiries, bookings) and revenue, plus visits referred by AI assistants (ChatGPT, Perplexity, Gemini, Copilot…).
+- **Ranking reports:** keywords in the top 3, 4–10, 11–30 and 31–100 each month, and keywords appearing in AI answers. These come from the uploaded sheets.
+- **Uploaded numbers:** any monthly business figures from Excel (a `Month` column plus one column per number), or a Search Console "Dates" export.
+- **SEMrush (optional):** today's position for each keyword. It only appears when the admin enables it for the project and allows the client toggle. The client's "Live rankings" switch starts off.
+
+### Connecting Google (one time)
+
+1. In Google Cloud, create a project, enable the **Google Analytics Data API** and the **Google Search Console API**, create a **service account**, and download a JSON key.
+2. In Railway → Variables, add `GOOGLE_SERVICE_ACCOUNT_JSON` with the whole JSON as its value.
+3. For each client, open **Admin → project → Performance**, copy the service account email, and ask the client to add it:
+   - as a **Viewer** in GA4 (Admin → Property access management);
+   - as a **Restricted user** in Search Console (Settings → Users and permissions).
+4. Enter the GA4 property ID and the Search Console property (`sc-domain:example.com` or `https://www.example.com/`), set the campaign start month, then click **Sync Google now**. After that, data refreshes daily.

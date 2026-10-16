@@ -115,7 +115,7 @@ async function showProject(id) {
 function renderProject() {
   const { project: p, feedback } = A.current;
   const open = feedback.filter((f) => f.status === 'open').length;
-  const views = [['content', 'Content'], ['upload', 'Upload'], ['feedback', `Feedback${open ? ` (${open})` : ''}`], ['settings', 'Settings']];
+  const views = [['content', 'Content'], ['upload', 'Upload'], ['performance', 'Performance'], ['feedback', `Feedback${open ? ` (${open})` : ''}`], ['settings', 'Settings']];
   const body = h('section');
   app.replaceChildren(
     h('div', { class: 'hero' },
@@ -132,7 +132,7 @@ function renderProject() {
       class: `tab${A.view === k ? ' active' : ''}`, href: `#/project/${p.id}/${k}`, style: { textDecoration: 'none' },
     }, label))),
     body);
-  ({ content: renderContent, upload: renderUpload, feedback: renderFeedback, settings: renderSettings }[A.view] || renderContent)(body);
+  ({ content: renderContent, upload: renderUpload, performance: renderPerformanceAdmin, feedback: renderFeedback, settings: renderSettings }[A.view] || renderContent)(body);
 }
 
 const refresh = async () => { await loadProject(A.current.project.id); renderProject(); };
@@ -320,6 +320,124 @@ function renderUpload(body) {
     docArea);
 
   body.append(h('div', { style: { display: 'grid', gap: '18px' } }, excel, doc));
+}
+
+/* ---------- performance (GA4, Search Console, SEMrush, monthly numbers) ---------- */
+
+const METRIC_NAMES = {
+  'gsc:clicks': 'Search Console clicks', 'gsc:impressions': 'Search Console impressions', 'gsc:ctr': 'Search Console CTR', 'gsc:position': 'Search Console average position',
+  'ga4:organic_sessions': 'GA4 organic sessions', 'ga4:organic_key_events': 'GA4 organic key events', 'ga4:organic_revenue': 'GA4 organic revenue', 'ga4:ai_sessions': 'GA4 visits from AI assistants',
+};
+
+async function renderPerformanceAdmin(body) {
+  const p = A.current.project;
+  body.append(h('div', { class: 'spinner' }));
+  let data;
+  try { data = await api('GET', `/api/admin/projects/${p.id}/analytics`); } catch (err) { body.replaceChildren(h('div', { class: 'card empty' }, err.message)); return; }
+  const s = data.settings || {};
+  const sem = s.semrush || {};
+
+  const ga4 = h('input', { class: 'input', id: 'pf-ga4', value: s.ga4Property || '', placeholder: 'e.g. 412345678', inputmode: 'numeric' });
+  const gsc = h('input', { class: 'input', id: 'pf-gsc', value: s.gscSite || '', placeholder: 'sc-domain:example.com or https://www.example.com/' });
+  const start = h('input', { class: 'input', id: 'pf-start', type: 'month', value: s.start || '' });
+  const semOn = h('input', { type: 'checkbox', id: 'pf-sem-on', checked: Boolean(sem.enabled) });
+  const semClient = h('input', { type: 'checkbox', id: 'pf-sem-client', checked: Boolean(sem.clientToggle) });
+  const semDomain = h('input', { class: 'input', id: 'pf-sem-domain', value: sem.domain || p.website || '', placeholder: 'example.com' });
+  const semDb = h('select', { class: 'select', id: 'pf-sem-db' }, [['sg', 'Singapore'], ['my', 'Malaysia'], ['au', 'Australia'], ['uk', 'United Kingdom'], ['us', 'United States'], ['hk', 'Hong Kong']]
+    .map(([v, l]) => h('option', { value: v, selected: (sem.database || 'sg') === v }, l)));
+
+  const save = async () => {
+    await api('PUT', `/api/admin/projects/${p.id}/analytics`, {
+      ga4Property: ga4.value, gscSite: gsc.value, start: start.value,
+      semrush: { enabled: semOn.checked, clientToggle: semClient.checked, domain: semDomain.value, database: semDb.value },
+    });
+  };
+  const sync = async (btn, only) => {
+    btn.disabled = true;
+    try {
+      await save();
+      const r = await api('POST', `/api/admin/projects/${p.id}/analytics/sync`, { only });
+      if (r.errors.length) toast(r.errors[0], true);
+      else if (!r.synced.length) toast('Nothing to sync yet. Add a property first.', true);
+      else toast(`Synced ${r.synced.map((x) => x.toUpperCase()).join(', ')}.`);
+      refresh();
+    } catch (err) { toast(err.message, true); btn.disabled = false; }
+  };
+
+  const saveBtn = h('button', { class: 'btn primary', onclick: async () => { try { await save(); toast('Saved.'); refresh(); } catch (err) { toast(err.message, true); } } }, 'Save');
+  const syncBtn = h('button', { class: 'btn' }, '↻ Sync Google now');
+  syncBtn.addEventListener('click', () => sync(syncBtn));
+  const semBtn = h('button', { class: 'btn' }, '↻ Fetch SEMrush rankings');
+  semBtn.addEventListener('click', () => sync(semBtn, 'semrush'));
+
+  const sa = data.serviceAccount;
+  const googleCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
+    h('h3', { style: { margin: 0 } }, '📊 Google Analytics 4 & Search Console'),
+    sa
+      ? h('div', { class: 'small', style: { display: 'grid', gap: '6px' } },
+        h('div', null, 'Ask the client to add this email as a ', h('strong', null, 'Viewer'), ' in GA4 (Admin → Property access management) and as a ', h('strong', null, 'Restricted user'), ' in Search Console (Settings → Users and permissions):'),
+        h('div', { class: 'linkbox' }, h('code', null, sa), h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(sa).then(() => toast('Copied.'), () => {}) }, 'Copy')))
+      : h('div', { class: 'small', style: { background: 'var(--amber)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: '10px' } },
+        'Google is not connected yet. Create a service account in Google Cloud (enable the “Google Analytics Data API” and “Google Search Console API”), download its JSON key, and paste the whole JSON into a Railway variable named ',
+        h('code', null, 'GOOGLE_SERVICE_ACCOUNT_JSON'), '. Its email then appears here to share with each client.'),
+    h('div', { class: 'two-col' },
+      h('label', { class: 'field' }, 'GA4 property ID', ga4),
+      h('label', { class: 'field' }, 'Search Console property', gsc),
+      h('label', { class: 'field' }, 'Campaign start month (for “since we started” growth)', start)),
+    h('div', { class: 'row-flex' }, saveBtn, syncBtn,
+      s.lastSync ? h('span', { class: 'muted small' }, `Last synced ${timeAgo(s.lastSync.replace('T', ' ').slice(0, 19))}. Data refreshes daily.`) : null),
+    (s.lastErrors || []).length ? h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, s.lastErrors.join(' · ')) : null);
+
+  const semCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
+    h('h3', { style: { margin: 0 } }, '📡 Live rankings (SEMrush), optional'),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Daily positions from SEMrush, so clients can check our numbers against a tool they know. Clients see a “Live rankings” switch that is off by default, so nobody is overwhelmed.'),
+    data.semrushConfigured ? null : h('div', { class: 'small', style: { background: 'var(--amber)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: '10px' } },
+      'Add your SEMrush API key as a Railway variable named ', h('code', null, 'SEMRUSH_API_KEY'), '. Each daily fetch uses SEMrush API units.'),
+    h('div', { class: 'two-col' },
+      h('label', { class: 'field' }, 'Website domain', semDomain),
+      h('label', { class: 'field' }, 'Google database', semDb)),
+    h('label', { class: 'row-flex small' }, semOn, 'Fetch SEMrush rankings for this project'),
+    h('label', { class: 'row-flex small' }, semClient, 'Let the client switch on live rankings in their dashboard'),
+    h('div', { class: 'row-flex' }, semBtn,
+      data.dashboard.liveFetchedAt.semrush ? h('span', { class: 'muted small' }, `Last fetched ${timeAgo(data.dashboard.liveFetchedAt.semrush)}`) : null));
+
+  const series = data.dashboard.series;
+  const rows = [];
+  for (const [src, metrics] of Object.entries(series)) {
+    for (const [metric, months] of Object.entries(metrics)) {
+      const ms = Object.keys(months).sort();
+      rows.push(h('tr', null,
+        h('td', null, METRIC_NAMES[`${src}:${metric}`] || metric, src === 'manual' ? h('span', { class: 'chip', style: { marginLeft: '8px' } }, 'Uploaded') : null),
+        h('td', { class: 'muted small' }, `${ms.length} ${ms.length === 1 ? 'month' : 'months'} · ${ms[0]} to ${ms[ms.length - 1]}`),
+        h('td', { style: { textAlign: 'right' } }, h('button', {
+          class: 'btn sm ghost danger',
+          onclick: async () => { if (!confirm('Delete these numbers?')) return; await api('DELETE', `/api/admin/projects/${p.id}/analytics/metrics`, { source: src, metric }); refresh(); },
+        }, 'Delete'))));
+    }
+  }
+  const uploadArea = h('div');
+  const showDrop = () => uploadArea.replaceChildren(dropzone('.xlsx', 'Drop an .xlsx file with monthly numbers', 'Columns: Month, then one column per number (e.g. Enquiries, Revenue). A Search Console “Dates” export also works.', async (file) => {
+    uploadArea.replaceChildren(h('div', { class: 'spinner' }));
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const r = await api('POST', `/api/admin/projects/${p.id}/analytics/upload`, fd);
+      toast(`Imported ${r.found.join('; ')}.`);
+      refresh();
+    } catch (err) { toast(err.message, true); showDrop(); }
+  }));
+  showDrop();
+  const dataCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
+    h('h3', { style: { margin: 0 } }, '📈 Monthly numbers'),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Everything the client dashboard draws from. Upload business results the client tracks elsewhere (enquiries, bookings, revenue), or Search Console data before access is granted.'),
+    rows.length ? h('div', { style: { overflowX: 'auto' } }, h('table', { class: 'plain' }, h('tbody', null, rows))) : h('div', { class: 'muted small' }, 'No numbers yet.'),
+    uploadArea);
+
+  body.replaceChildren(h('div', { style: { display: 'grid', gap: '16px', maxWidth: '980px' } },
+    h('div', { class: 'between' },
+      h('p', { class: 'muted', style: { margin: 0 } }, 'Connect the client’s data to show how the SEO and AEO work is growing their business.'),
+      h('a', { class: 'btn', href: `${clientUrl(p)}#performance`, target: '_blank', rel: 'noopener' }, 'View client dashboard ↗')),
+    googleCard, semCard, dataCard));
 }
 
 /* ---------- feedback inbox ---------- */

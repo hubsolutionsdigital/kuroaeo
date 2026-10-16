@@ -134,10 +134,28 @@ function render() {
       h('div', { class: 'row-flex' },
         h('button', { class: 'btn', id: 'tour-btn', onclick: () => startTour() }, '❔ How to use'),
         h('button', { class: 'btn', id: 'all-feedback-btn', onclick: openActivity }, '🗂️ All feedback'))),
+    h('div', { class: 'view-switch', role: 'tablist', 'aria-label': 'View' },
+      h('button', { role: 'tab', 'data-view': 'review', onclick: () => setView('review') }, '✅ Review'),
+      h('button', { role: 'tab', 'data-view': 'performance', onclick: () => setView('performance') }, '📈 Performance')),
     h('nav', { class: 'tabs', id: 'tabs', role: 'tablist' }),
-    h('section', { id: 'tabbody' }));
-  renderTabs();
-  renderTabBody();
+    h('section', { id: 'tabbody' }),
+    h('section', { id: 'perfbody', hidden: true }));
+  setView(S.view || 'review', true);
+}
+
+function setView(view, initial) {
+  S.view = view;
+  document.querySelectorAll('.view-switch button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === view);
+    b.setAttribute('aria-selected', String(b.dataset.view === view));
+  });
+  const perf = view === 'performance';
+  document.getElementById('tabs').hidden = perf;
+  document.getElementById('tabbody').hidden = perf;
+  document.getElementById('perfbody').hidden = !perf;
+  if (!initial) history.replaceState(null, '', `#${perf ? 'performance' : S.tab}`);
+  if (perf) renderPerformance(document.getElementById('perfbody'));
+  else { renderTabs(); renderTabBody(); }
 }
 
 /* ---------- review steps ---------- */
@@ -150,10 +168,17 @@ function stepInfo(t) {
   return { t, has, items: pr.items, reviewed: pr.reviewed, open, complete };
 }
 
+// Blogs often have their own approver, so they are never locked and never
+// hold up the other steps.
+const INDEPENDENT_STEPS = new Set(['blogs']);
+// Shown on steps that have nothing uploaded yet.
+const COMING = { prompts: 'Coming in Month 2', backlinks: 'Coming in Month 2' };
+
 function steps() {
   const list = TAB_ORDER.map(stepInfo);
   let blocked = false;
   for (const st of list) {
+    if (INDEPENDENT_STEPS.has(st.t)) { st.locked = false; continue; }
     st.locked = st.has && blocked;
     if (st.has && !st.complete) blocked = true;
   }
@@ -162,11 +187,13 @@ function steps() {
 
 // The step to open by default: the first one that still needs the client.
 function currentStep() {
-  const list = steps().filter((x) => x.has);
+  const list = steps().filter((x) => x.has && !INDEPENDENT_STEPS.has(x.t));
+  if (!list.length) return (steps().find((x) => x.has) || { t: TAB_ORDER[0] }).t;
   return (list.find((x) => !x.complete) || list[list.length - 1] || { t: TAB_ORDER[0] }).t;
 }
 
 function goStep(t) {
+  if (S.view !== 'review') { S.view = 'review'; S.tab = t; setView('review'); return; }
   S.tab = t;
   S.filter = { q: '', status: 'all' };
   history.replaceState(null, '', `#${t}`);
@@ -181,7 +208,7 @@ function renderTabs() {
   const list = steps();
   nav.className = 'steps';
   nav.replaceChildren(...list.map((st, i) => {
-    const sub = !st.has ? 'Coming soon'
+    const sub = !st.has ? (COMING[st.t] || 'Coming soon')
       : st.complete ? 'Done'
         : st.locked ? 'After the previous step'
           : st.open ? `${st.open} open ${st.open === 1 ? 'question' : 'questions'}`
@@ -201,8 +228,8 @@ function stepFooter() {
   const idx = list.findIndex((x) => x.t === S.tab);
   const st = list[idx];
   if (!st || !st.has) return null;
-  const next = list.slice(idx + 1).find((x) => x.has);
-  const nextSoon = list.slice(idx + 1).find((x) => !x.has);
+  const next = list.slice(idx + 1).find((x) => x.has && !INDEPENDENT_STEPS.has(x.t));
+  const nextSoon = list.slice(idx + 1).find((x) => !x.has && !INDEPENDENT_STEPS.has(x.t));
   const noun = TAB_META[st.t].noun;
   if (!st.complete) {
     const left = st.items - st.reviewed;
@@ -215,7 +242,7 @@ function stepFooter() {
   }
   return h('div', { class: 'step-footer done' },
     h('div', null, h('strong', null, `✓ ${TAB_META[st.t].label} is done. `),
-      next ? `Next up: ${TAB_META[next.t].label}.` : nextSoon ? `That is everything for now. We will add ${TAB_META[nextSoon.t].label} next and let you know.` : 'Thank you, everything has been reviewed.'),
+      next ? `Next up: ${TAB_META[next.t].label}.` : nextSoon ? `That is everything for now. ${COMING[nextSoon.t] ? `${TAB_META[nextSoon.t].label} is ${COMING[nextSoon.t].toLowerCase()}.` : `We will add ${TAB_META[nextSoon.t].label} next and let you know.`}` : 'Thank you, everything has been reviewed.'),
     next ? h('button', { class: 'btn primary', onclick: () => goStep(next.t) }, `Next step: ${TAB_META[next.t].label} →`) : null);
 }
 
@@ -249,14 +276,16 @@ async function renderTabBody(keepScroll) {
     const prev = steps().filter((x) => x.has && TAB_ORDER.indexOf(x.t) < TAB_ORDER.indexOf(S.tab));
     body.replaceChildren(h('div', { class: 'card empty' },
       h('div', { class: 'big' }, TAB_META[S.tab].icon),
-      h('strong', null, `${TAB_META[S.tab].label} is coming soon`),
-      h('div', { class: 'muted', style: { marginTop: '4px' } }, prev.length
-        ? `We will add this once ${prev.map((x) => TAB_META[x.t].label).join(' and ')} ${prev.length === 1 ? 'is' : 'are'} approved. ${TAB_META[S.tab].empty}`
-        : TAB_META[S.tab].empty)));
+      h('strong', null, COMING[S.tab] ? `${TAB_META[S.tab].label}: ${COMING[S.tab].toLowerCase()}` : `${TAB_META[S.tab].label} is coming soon`),
+      h('div', { class: 'muted', style: { marginTop: '4px' } }, COMING[S.tab]
+        ? `We start on ${TAB_META[S.tab].label.toLowerCase()} in the second month of your campaign. ${TAB_META[S.tab].empty}`
+        : prev.length
+          ? `We will add this once ${prev.map((x) => TAB_META[x.t].label).join(' and ')} ${prev.length === 1 ? 'is' : 'are'} approved. ${TAB_META[S.tab].empty}`
+          : TAB_META[S.tab].empty)));
     return;
   }
   if (st && st.locked && !S.peek[S.tab]) {
-    const first = steps().find((x) => x.has && !x.complete);
+    const first = steps().find((x) => x.has && !x.complete && !INDEPENDENT_STEPS.has(x.t));
     body.replaceChildren(h('div', { class: 'card empty' },
       h('div', { class: 'big' }, '🔒'),
       h('strong', null, `Please finish ${TAB_META[first.t].label} first`),
@@ -1270,7 +1299,8 @@ const TOUR_STEPS = [
     body: [
       'Your project is reviewed one step at a time. When a step is done, the next one opens.',
       '1 Keywords: the searches we will rank you for, with monthly rankings.',
-      '2 On-Page SEO · 3 Prompts · 4 Backlinks · 5 Blogs follow as the work progresses. Steps marked “Coming soon” appear once we upload them.',
+      '2 On-Page SEO · 3 Prompts · 4 Backlinks follow as the work progresses. Prompts and Backlinks start in Month 2.',
+      '5 Blogs can be reviewed at any time, so a colleague who approves content can go straight there.',
     ],
   },
   {
@@ -1337,6 +1367,14 @@ const TOUR_STEPS = [
       ['Blogs', 'Check facts, prices, offers, team names and credentials. We cannot verify these for you.'],
     ],
     body: ['When everything in a section looks right, approve it. Questions are welcome, and we reply right here.'],
+  },
+  {
+    target: '.view-switch',
+    title: 'See how your SEO is performing',
+    body: [
+      'Switch to 📈 Performance for monthly charts of your Google clicks, organic visits, enquiries, rankings and visits from AI assistants.',
+      'Switch back to ✅ Review to keep reviewing.',
+    ],
   },
   {
     target: '#all-feedback-btn',
@@ -1427,6 +1465,7 @@ async function startTour(i = 0) {
   }
   const hash = location.hash.slice(1);
   S.tab = TAB_ORDER.includes(hash) ? hash : currentStep();
+  S.view = hash === 'performance' ? 'performance' : 'review';
   render();
   let seen = false;
   try { seen = localStorage.getItem(`tour:${token}`) === '1'; } catch { /* ignore */ }
