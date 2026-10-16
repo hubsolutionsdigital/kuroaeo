@@ -172,7 +172,7 @@ function stepInfo(t) {
 // hold up the other steps.
 const INDEPENDENT_STEPS = new Set(['blogs', 'landing']);
 // Shown on steps that have nothing uploaded yet.
-const COMING = { prompts: 'Coming in Month 2', backlinks: 'Coming in Month 2' };
+const COMING = { prompts: 'Coming soon', backlinks: 'Coming in Month 2' };
 
 function steps() {
   const list = TAB_ORDER.map(stepInfo);
@@ -277,7 +277,7 @@ async function renderTabBody(keepScroll) {
     body.replaceChildren(h('div', { class: 'card empty' },
       h('div', { class: 'big' }, TAB_META[S.tab].icon),
       h('strong', null, COMING[S.tab] ? `${TAB_META[S.tab].label}: ${COMING[S.tab].toLowerCase()}` : `${TAB_META[S.tab].label} is coming soon`),
-      h('div', { class: 'muted', style: { marginTop: '4px' } }, COMING[S.tab]
+      h('div', { class: 'muted', style: { marginTop: '4px' } }, /month 2/i.test(COMING[S.tab] || '')
         ? `We start on ${TAB_META[S.tab].label.toLowerCase()} in the second month of your campaign. ${TAB_META[S.tab].empty}`
         : prev.length
           ? `We will add this once ${prev.map((x) => TAB_META[x.t].label).join(' and ')} ${prev.length === 1 ? 'is' : 'are'} approved. ${TAB_META[S.tab].empty}`
@@ -1302,7 +1302,7 @@ const TOUR_STEPS = [
     body: [
       'Your project is reviewed one step at a time. When a step is done, the next one opens.',
       '1 Keywords: the searches we will rank you for, with monthly rankings.',
-      '2 On-Page SEO · 3 Prompts · 4 Backlinks follow as the work progresses. Prompts and Backlinks start in Month 2.',
+      '2 On-Page SEO · 3 Prompts · 4 Backlinks follow as the work progresses. Backlinks start in Month 2, and Prompts are coming soon.',
       '5 Blogs and 6 Landing Pages can be reviewed at any time, so a colleague who approves content can go straight there.',
     ],
   },

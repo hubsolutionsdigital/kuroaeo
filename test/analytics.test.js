@@ -106,6 +106,9 @@ test('syncs Search Console, GA4 and SEMrush into monthly numbers', async () => {
   const kw = d.keywords.find((k) => k.keyword === 'hearing aids');
   assert.equal(kw.gscPosition, 7.4);
   assert.equal(kw.gscBest, 4, 'best single day');
+  assert.equal(kw.start, 101, 'ranking when we started, from the sheet');
+  assert.equal(kw.reported, 8);
+  assert.equal(kw.reportedLabel, 'Month 1');
   assert.equal(kw.gscBestDate, '2026-10-05');
   const test2 = d.keywords.find((k) => k.keyword === 'hearing test');
   assert.equal(test2.gscPosition, null, 'no data this week');

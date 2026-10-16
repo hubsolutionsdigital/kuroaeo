@@ -164,8 +164,60 @@ function stat(label, g, { format = compact, sinceLabel } = {}) {
       since !== null ? h('span', { class: 'muted' }, `${since >= 0 ? '+' : ''}${since}% since ${sinceLabel || ymLabel(g.first, true)}`) : null));
 }
 
+// Where each tracked keyword ranks now: the better of Google's best day in
+// the last 28 days (Search Console) and our latest month-end report.
+function rankWins(data) {
+  const kws = data.keywords || [];
+  if (!kws.length) return null;
+  const rows = kws.map((k) => {
+    const cands = [k.gscBest, k.reported].filter((v) => v !== null && v !== undefined);
+    return { keyword: k.keyword, now: cands.length ? Math.round(Math.min(...cands)) : null, start: k.start };
+  });
+  if (!rows.some((r) => r.now !== null)) return null;
+  const count = (key, max) => rows.filter((r) => r[key] !== null && r[key] <= max).length;
+  const hasStart = rows.some((r) => r.start !== null);
+  const improved = rows.filter((r) => r.now !== null && r.now < (r.start ?? 101));
+  const climb = hasStart ? rows.filter((r) => r.now !== null && r.start !== null && r.now < r.start)
+    .sort((a, b) => (b.start - b.now) - (a.start - a.now))[0] : null;
+  return {
+    total: rows.length, hasStart,
+    page1: count('now', 10), page1Start: count('start', 10),
+    top3: count('now', 3), top3Start: count('start', 3),
+    improved: improved.length, climb,
+  };
+}
+
+function rankTile(label, value, small, note, up) {
+  return h('div', { class: 'stat' },
+    h('div', { class: 'k' }, label),
+    h('div', { class: 'v' }, value, small ? h('small', null, small) : null),
+    note ? h('div', { class: 'stat-deltas' }, h('span', { class: up ? 'delta up' : 'muted' }, note)) : null);
+}
+
+function rankTiles(w) {
+  if (!w) return [];
+  const from = (n, start) => (w.hasStart && n > start ? `▲ up from ${start} at the start` : null);
+  const tiles = [
+    rankTile('Keywords on Google page 1', String(w.page1), `of ${w.total} keywords`, from(w.page1, w.page1Start), w.page1 > w.page1Start),
+    rankTile('Keywords in the top 3', String(w.top3), `of ${w.total} keywords`, from(w.top3, w.top3Start), w.top3 > w.top3Start),
+  ];
+  if (w.hasStart && w.improved) tiles.push(rankTile('Keywords moved up', String(w.improved), `of ${w.total}, since we started`, null));
+  if (w.climb) {
+    const fmt = (v) => (v > 100 ? 'not ranked' : `#${v}`);
+    tiles.push(rankTile('Biggest climb', `#${w.climb.now}`, w.climb.keyword, `▲ from ${fmt(w.climb.start)}`, true));
+  }
+  return tiles;
+}
+
 function perfSummary(data) {
   const out = [];
+  const w = rankWins(data);
+  if (w && (w.page1 || w.improved)) {
+    let t = `${w.page1} of your ${w.total} keywords ${w.page1 === 1 ? 'is' : 'are'} on Google’s first page`;
+    if (w.hasStart && w.page1 > w.page1Start) t += `, up from ${w.page1Start} when we started`;
+    if (w.climb) t += `. The biggest climb: “${w.climb.keyword}” moved from ${w.climb.start > 100 ? 'outside the top 100' : `#${w.climb.start}`} to #${w.climb.now}`;
+    out.push(`${t}.`);
+  }
   const gsc = data.series.gsc || {};
   const ga4 = data.series.ga4 || {};
   const c = growth(gsc.clicks);
@@ -186,7 +238,7 @@ function perfSummary(data) {
     out.push(`Google Analytics recorded ${parts.join(' and ')} in ${ymLabel((s || k).last, true)}.`);
   }
   const seo = data.timelines.seo;
-  if (seo.length >= 1) {
+  if (seo.length >= 1 && !(w && (w.page1 || w.improved))) {
     const a = seo[0]; const b = seo[seo.length - 1];
     // Report the first band where there is something to see.
     const [key, name] = [['top10', 'on Google’s first page (top 10)'], ['top30', 'in Google’s top 30'], ['top100', 'in Google’s top 100']]
@@ -240,6 +292,7 @@ async function renderPerformance(root) {
     })() : null);
 
   const summary = perfSummary(data);
+  const rankRow = rankTiles(rankWins(data));
   const tiles = [
     stat('Clicks from Google', growth(gsc.clicks)),
     stat('Organic visits', growth(ga4.organic_sessions)),
@@ -334,6 +387,7 @@ async function renderPerformance(root) {
   root.replaceChildren(head,
     data.sample ? h('div', { class: 'chip warn', style: { marginBottom: '12px' } }, 'Sample numbers for this preview. Your real Google data appears once it is connected.') : '',
     summary.length ? h('div', { class: 'card summary' }, h('div', { class: 'summary-label' }, 'Summary'), summary.map((p) => h('p', null, p))) : '',
+    rankRow.length ? h('div', { class: 'stats perf-stats' }, rankRow) : '',
     tiles.length ? h('div', { class: 'stats perf-stats' }, tiles) : '',
     charts.length ? h('div', { class: 'viz-grid' }, charts) : '',
     aeo || '',
