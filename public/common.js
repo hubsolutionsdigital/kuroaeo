@@ -72,7 +72,8 @@ const TAB_META = {
   prompts: { label: 'Prompts', noun: 'prompt', icon: '💬', empty: 'AI search prompts (AEO) we are tracking for you will appear here.' },
   blogs: { label: 'Blogs', noun: 'article', icon: '✍️', empty: 'Blog articles ready for your review will appear here.' },
 };
-const TAB_ORDER = ['keywords', 'onpage', 'backlinks', 'prompts', 'blogs'];
+// Also the order of the client's review steps.
+const TAB_ORDER = ['keywords', 'onpage', 'prompts', 'backlinks', 'blogs'];
 
 const FB_TYPES = {
   love: { emoji: '❤️', label: 'Love it', pos: true },

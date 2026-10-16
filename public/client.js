@@ -15,6 +15,8 @@ const S = {
   cache: {}, // dataset id -> payload
   filter: { q: '', status: 'all' },
   docSection: {}, // dataset id -> 'overview' | item_key
+  selected: {}, // dataset id -> Set of selected item keys
+  peek: {}, // tabs the client chose to open before finishing earlier steps
 };
 
 function getName() {
@@ -136,15 +138,83 @@ function render() {
   renderTabBody();
 }
 
+/* ---------- review steps ---------- */
+
+function stepInfo(t) {
+  const pr = S.progress[t] || { items: 0, reviewed: 0 };
+  const has = S.datasets.some((d) => d.tab === t);
+  const open = S.feedback.filter((f) => !f.parent_id && f.tab === t && f.status === 'open').length;
+  const complete = has && pr.items > 0 && pr.reviewed >= pr.items && open === 0;
+  return { t, has, items: pr.items, reviewed: pr.reviewed, open, complete };
+}
+
+function steps() {
+  const list = TAB_ORDER.map(stepInfo);
+  let blocked = false;
+  for (const st of list) {
+    st.locked = st.has && blocked;
+    if (st.has && !st.complete) blocked = true;
+  }
+  return list;
+}
+
+// The step to open by default: the first one that still needs the client.
+function currentStep() {
+  const list = steps().filter((x) => x.has);
+  return (list.find((x) => !x.complete) || list[list.length - 1] || { t: TAB_ORDER[0] }).t;
+}
+
+function goStep(t) {
+  S.tab = t;
+  S.filter = { q: '', status: 'all' };
+  history.replaceState(null, '', `#${t}`);
+  renderTabs();
+  renderTabBody();
+  const nav = document.getElementById('tabs');
+  if (nav && nav.getBoundingClientRect().top < 0) window.scrollTo({ top: nav.offsetTop - 8 });
+}
+
 function renderTabs() {
   const nav = document.getElementById('tabs');
-  nav.replaceChildren(...TAB_ORDER.map((t) => {
-    const pr = S.progress[t] || { items: 0, reviewed: 0 };
+  const list = steps();
+  nav.className = 'steps';
+  nav.replaceChildren(...list.map((st, i) => {
+    const sub = !st.has ? 'Coming soon'
+      : st.complete ? 'Done'
+        : st.locked ? 'After the previous step'
+          : st.open ? `${st.open} open ${st.open === 1 ? 'question' : 'questions'}`
+            : `${st.reviewed} of ${st.items} reviewed`;
+    const state = st.complete ? 'done' : !st.has ? 'soon' : st.locked ? 'locked' : 'todo';
     return h('button', {
-      class: `tab${S.tab === t ? ' active' : ''}`, role: 'tab', 'data-tab': t, 'aria-selected': String(S.tab === t),
-      onclick: () => { S.tab = t; S.filter = { q: '', status: 'all' }; history.replaceState(null, '', `#${t}`); renderTabs(); renderTabBody(); },
-    }, `${TAB_META[t].icon} ${TAB_META[t].label}`, pr.items ? h('span', { class: 'count', title: `${pr.reviewed} of ${pr.items} reviewed` }, `${pr.reviewed}/${pr.items}`) : null);
+      class: `tab step ${state}${S.tab === st.t ? ' active' : ''}`, role: 'tab', 'data-tab': st.t,
+      'aria-selected': String(S.tab === st.t), onclick: () => goStep(st.t),
+    },
+    h('span', { class: 'step-num', 'aria-hidden': 'true' }, st.complete ? '✓' : String(i + 1)),
+    h('span', { class: 'step-text' }, h('span', { class: 'step-label' }, TAB_META[st.t].label), h('span', { class: 'step-sub' }, sub)));
   }));
+}
+
+function stepFooter() {
+  const list = steps();
+  const idx = list.findIndex((x) => x.t === S.tab);
+  const st = list[idx];
+  if (!st || !st.has) return null;
+  const next = list.slice(idx + 1).find((x) => x.has);
+  const nextSoon = list.slice(idx + 1).find((x) => !x.has);
+  const noun = TAB_META[st.t].noun;
+  if (!st.complete) {
+    const left = st.items - st.reviewed;
+    const parts = [];
+    if (left > 0) parts.push(`review ${left} more ${left === 1 ? noun : `${noun}s`}`);
+    if (st.open) parts.push(`we still owe you a reply on ${st.open} ${st.open === 1 ? 'item' : 'items'}`);
+    return h('div', { class: 'step-footer' },
+      h('div', null, h('strong', null, `To finish ${TAB_META[st.t].label}: `), left > 0 ? parts.join(', and ') : `${parts.join('')}. We will reply here soon.`),
+      next ? h('button', { class: 'btn', onclick: () => goStep(next.t) }, `Skip to ${TAB_META[next.t].label} →`) : null);
+  }
+  return h('div', { class: 'step-footer done' },
+    h('div', null, h('strong', null, `✓ ${TAB_META[st.t].label} is done. `),
+      next ? `Next up: ${TAB_META[next.t].label}.` : nextSoon ? `That is everything for now. We will add ${TAB_META[nextSoon.t].label} next and let you know.` : 'Thank you, everything has been reviewed.'),
+    next ? h('button', { class: 'btn primary', onclick: () => goStep(next.t) }, `Next step: ${TAB_META[next.t].label} →`) : null);
 }
 
 function groupsFor(tab) {
@@ -165,11 +235,27 @@ async function renderTabBody(keepScroll) {
   const body = document.getElementById('tabbody');
   const scroll = keepScroll ? { y: window.scrollY, ...tableScroll() } : null;
   const groups = groupsFor(S.tab);
+  const st = steps().find((x) => x.t === S.tab);
   if (!groups.size) {
+    const prev = steps().filter((x) => x.has && TAB_ORDER.indexOf(x.t) < TAB_ORDER.indexOf(S.tab));
     body.replaceChildren(h('div', { class: 'card empty' },
       h('div', { class: 'big' }, TAB_META[S.tab].icon),
-      h('strong', null, 'Nothing to review here yet'),
-      h('div', { class: 'muted', style: { marginTop: '4px' } }, TAB_META[S.tab].empty)));
+      h('strong', null, `${TAB_META[S.tab].label} is coming soon`),
+      h('div', { class: 'muted', style: { marginTop: '4px' } }, prev.length
+        ? `We will add this once ${prev.map((x) => TAB_META[x.t].label).join(' and ')} ${prev.length === 1 ? 'is' : 'are'} approved. ${TAB_META[S.tab].empty}`
+        : TAB_META[S.tab].empty)));
+    return;
+  }
+  if (st && st.locked && !S.peek[S.tab]) {
+    const first = steps().find((x) => x.has && !x.complete);
+    body.replaceChildren(h('div', { class: 'card empty' },
+      h('div', { class: 'big' }, '🔒'),
+      h('strong', null, `Please finish ${TAB_META[first.t].label} first`),
+      h('div', { class: 'muted', style: { margin: '6px auto 16px', maxWidth: '520px' } },
+        `We review your project one step at a time so nothing gets missed. ${first.items - first.reviewed > 0 ? `${first.items - first.reviewed} ${TAB_META[first.t].noun}s still need your review.` : 'We are replying to your questions there.'}`),
+      h('div', { class: 'row-flex', style: { justifyContent: 'center' } },
+        h('button', { class: 'btn primary', onclick: () => goStep(first.t) }, `Go to ${TAB_META[first.t].label}`),
+        h('button', { class: 'btn ghost', onclick: () => { S.peek[S.tab] = true; renderTabBody(); } }, 'Look anyway'))));
     return;
   }
 
@@ -210,7 +296,8 @@ async function renderTabBody(keepScroll) {
     }
   }
   const content = payload.dataset.kind === 'doc' ? renderDoc(payload) : renderTable(payload);
-  body.replaceChildren(head, content);
+  body.replaceChildren(head, content, stepFooter() || '');
+  if (payload.dataset.kind !== 'doc') freezeColumns();
   if (scroll) {
     window.scrollTo(0, scroll.y);
     const wrap = document.querySelector('.table-wrap');
@@ -458,6 +545,12 @@ function renderTable(payload) {
   const wrap = h('div');
 
   if (dataset.meta && dataset.meta.title) wrap.append(h('div', { class: 'muted', style: { margin: '-4px 0 12px', fontWeight: 600 } }, dataset.meta.title));
+  const summary = summaryFor(payload, A, fb);
+  if (summary.length) {
+    wrap.append(h('div', { class: 'card summary' },
+      h('div', { class: 'summary-label' }, 'Summary'),
+      summary.map((para) => h('p', null, para))));
+  }
   wrap.append(...renderStats(payload, A, fb).filter(Boolean));
 
   const pendingApproval = items.filter((it) => itemStatus(fb.get(it.item_key)).key !== 'approved').length;
@@ -478,11 +571,17 @@ function renderTable(payload) {
       seg),
     h('div', { class: 'right' }, columnsButton(payload, A), approveAllBtn)));
 
-  const stickyPrimary = A.numIdx === 0 && dataset.primary === 1 ? 1 : dataset.primary === 0 ? 0 : -1;
+  // The keyword (or page, prompt…) column sits right after No. and stays frozen.
+  const order = [A.numIdx, dataset.primary].filter((c) => c >= 0 && A.visible.includes(c));
+  const cols = [...new Set([...order, ...A.visible])];
+  const frozen = new Set(order);
+  const selected = S.selected[dataset.id] || (S.selected[dataset.id] = new Set());
+  const rowsShown = [];
+  const allBox = h('input', { type: 'checkbox', 'aria-label': `Select all ${TAB_META[S.tab].noun}s` });
   const thead = h('thead', null, h('tr', null,
-    A.visible.map((c) => h('th', {
-      class: [A.projected.includes(c) ? 'proj' : '', c === 0 && stickyPrimary >= 0 ? 'sticky-l' : '', c === stickyPrimary && c !== 0 ? 'sticky-l' : ''].join(' ').trim() || null,
-      style: c === stickyPrimary && c !== 0 ? { left: '48px' } : c === 0 && stickyPrimary >= 0 ? { minWidth: stickyPrimary === 1 ? '48px' : null, width: stickyPrimary === 1 ? '48px' : null } : null,
+    h('th', { class: 'selcol freeze' }, allBox),
+    cols.map((c) => h('th', {
+      class: [A.projected.includes(c) ? 'proj' : '', frozen.has(c) ? 'freeze' : '', c === A.numIdx ? 'idx' : ''].join(' ').trim() || null,
       title: A.projected.includes(c) ? 'Projected ranking range' : null,
     }, A.cols[c])),
     h('th', { class: 'sticky-r' }, 'Your feedback')));
@@ -497,11 +596,18 @@ function renderTable(payload) {
     }
     if (q && !item.data.some((v) => v !== null && String(v).toLowerCase().includes(q))) continue;
     shown++;
-    const tr = h('tr');
-    for (const c of A.visible) {
+    rowsShown.push(item);
+    const box = h('input', { type: 'checkbox', checked: selected.has(item.item_key), 'aria-label': `Select ${item.label}` });
+    const tr = h('tr', { class: selected.has(item.item_key) ? 'picked' : null });
+    box.addEventListener('change', () => {
+      if (box.checked) selected.add(item.item_key); else selected.delete(item.item_key);
+      tr.classList.toggle('picked', box.checked);
+      syncSelection();
+    });
+    tr.append(h('td', { class: 'selcol freeze' }, box));
+    for (const c of cols) {
       const td = renderCell(item.data[c], c, A, item, payload);
-      if (c === 0 && stickyPrimary >= 0) td.classList.add('sticky-l');
-      if (c === stickyPrimary && c !== 0) { td.classList.add('sticky-l'); td.style.left = '48px'; }
+      if (frozen.has(c)) td.classList.add('freeze');
       tr.append(td);
     }
     const reviewBtn = h('button', { class: 'btn sm review-btn' }, '★ Review');
@@ -515,8 +621,36 @@ function renderTable(payload) {
     tbody.append(tr);
   }
 
+  // Selection bar: act on several rows at once.
+  const selBar = h('div', { class: 'select-bar', hidden: true });
+  function syncSelection() {
+    for (const k of [...selected]) if (!items.some((it) => it.item_key === k)) selected.delete(k);
+    const n = selected.size;
+    const shownSel = rowsShown.filter((it) => selected.has(it.item_key)).length;
+    allBox.checked = rowsShown.length > 0 && shownSel === rowsShown.length;
+    allBox.indeterminate = shownSel > 0 && shownSel < rowsShown.length;
+    selBar.hidden = n === 0;
+    if (!n) return;
+    const noun = n === 1 ? TAB_META[S.tab].noun : `${TAB_META[S.tab].noun}s`;
+    const picked = items.filter((it) => selected.has(it.item_key));
+    const approve = h('button', { class: 'btn brand' }, `✓ Approve ${n}`);
+    approve.addEventListener('click', () => bulkPopover(approve, picked, dataset.id, 'approve'));
+    const other = h('button', { class: 'btn' }, '★ Feedback on selected');
+    other.addEventListener('click', () => bulkPopover(other, picked, dataset.id));
+    selBar.replaceChildren(
+      h('strong', null, `${n} ${noun} selected`),
+      h('div', { class: 'row-flex' },
+        approve, other,
+        h('button', { class: 'btn ghost', onclick: () => { selected.clear(); renderTabBody(true); } }, 'Clear')));
+  }
+  allBox.addEventListener('change', () => {
+    for (const it of rowsShown) { if (allBox.checked) selected.add(it.item_key); else selected.delete(it.item_key); }
+    renderTabBody(true);
+  });
+
   const table = h('div', { class: 'card table-wrap' }, h('table', { class: 'data' }, thead, tbody));
-  wrap.append(table);
+  wrap.append(selBar, table);
+  syncSelection();
   if (!shown) table.append(h('div', { class: 'empty' }, 'Nothing matches this filter.'));
   if (A.hidden) wrap.append(h('div', { class: 'muted small', style: { marginTop: '8px' } }, `${A.hidden} empty ${A.hidden === 1 ? 'column is' : 'columns are'} hidden.`));
 
@@ -533,6 +667,153 @@ function renderTable(payload) {
     }, 200);
   });
   return wrap;
+}
+
+function bulkPopover(anchor, picked, datasetId, preselect) {
+  const n = picked.length;
+  const noun = n === 1 ? TAB_META[S.tab].noun : `${TAB_META[S.tab].noun}s`;
+  const names = picked.slice(0, 4).map((it) => it.label).join(', ') + (n > 4 ? ` and ${n - 4} more` : '');
+  openFeedbackPopover({
+    anchor,
+    title: preselect === 'approve' ? `Approve ${n} ${noun}?` : `What do you think of these ${n} ${noun}?`,
+    context: names,
+    preselect,
+    getName,
+    onSubmit: async ({ type, name, comment }) => {
+      await api('POST', `/api/c/${encodeURIComponent(token)}/feedback/bulk`, {
+        item_keys: picked.map((it) => it.item_key), dataset_id: datasetId, type, name, comment,
+      });
+      setName(name);
+      S.selected[datasetId] = new Set();
+      toast(type === 'approve' ? `Approved ${n} ${noun}. Thank you, ${name}!` : `Thanks, ${name}! Feedback sent for ${n} ${noun}.`);
+      await refreshFeedback();
+    },
+  });
+}
+
+// Pins No., the selection box and the keyword column while the rest scrolls.
+function freezeColumns() {
+  const table = document.querySelector('table.data');
+  if (!table) return;
+  const head = [...table.querySelectorAll('thead th.freeze')];
+  let left = 0;
+  const offsets = head.map((th) => { const l = left; left += th.getBoundingClientRect().width; return l; });
+  for (const row of table.querySelectorAll('tr')) {
+    const cells = [...row.children].filter((c) => c.classList.contains('freeze'));
+    cells.forEach((cell, i) => {
+      cell.style.left = `${offsets[i]}px`;
+      cell.classList.toggle('freeze-edge', i === cells.length - 1);
+    });
+  }
+}
+window.addEventListener('resize', () => freezeColumns());
+
+/* ---------- plain-English summary ---------- */
+
+const fmt = (n) => Number(n).toLocaleString();
+const joinAnd = (arr) => (arr.length <= 1 ? arr.join('') : `${arr.slice(0, -1).join(', ')} and ${arr[arr.length - 1]}`);
+const quoteList = (arr) => joinAnd(arr.map((x) => `“${x}”`));
+
+function summaryFor(payload, A, fb) {
+  const { dataset, items } = payload;
+  if (!items.length) return [];
+  const cols = dataset.columns;
+  const pi = dataset.primary;
+  const find = (re) => cols.findIndex((c) => re.test(c));
+  const label = (it) => String(it.data[pi] ?? it.label);
+  const out = [];
+  const n = items.length;
+
+  if (dataset.tab === 'keywords') {
+    const loc = find(/location|country|market/i);
+    const locs = loc >= 0 ? [...new Set(items.map((it) => it.data[loc]).filter(Boolean))] : [];
+    const where = locs.length === 1 ? ` in ${locs[0]}` : '';
+    const vol = A.volume;
+    const withVol = vol >= 0 ? items.filter((it) => typeof it.data[vol] === 'number') : [];
+    const total = withVol.reduce((sum, it) => sum + it.data[vol], 0);
+    let p1 = `We have picked ${n} keywords for ${S.project.name}`;
+    if (total) p1 += `, searched about ${fmt(total)} times a month${where} in total`;
+    p1 += '.';
+    if (withVol.length >= 3) {
+      const top = [...withVol].sort((a, b) => b.data[vol] - a.data[vol]).slice(0, 3);
+      p1 += ` The biggest opportunities are ${joinAnd(top.map((it) => `“${label(it)}” (${fmt(it.data[vol])}/month)`))}.`;
+    }
+    const intent = find(/intent/i);
+    if (intent >= 0) {
+      const counts = {};
+      for (const it of items) {
+        const v = String(it.data[intent] || '').trim();
+        if (v) counts[v] = (counts[v] || 0) + 1;
+      }
+      const [topIntent, c] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0] || [];
+      if (topIntent && topIntent.length > 2 && c >= n / 3) {
+        const why = /transaction|commercial/i.test(topIntent) ? ', made by people ready to choose a provider'
+          : /informational/i.test(topIntent) ? ', made by people researching a topic, a chance to reach them early'
+            : '';
+        p1 += ` Most are ${topIntent.toLowerCase()} searches (${c} of ${n})${why}.`;
+      }
+    }
+    out.push(p1);
+
+    if (A.latest >= 0) {
+      const ranked = items.map((it) => ({ it, r: rankValue(it.data[A.latest]) })).filter((x) => x.r !== null && x.r <= 100).sort((a, b) => a.r - b.r);
+      const top12 = ranked.filter((x) => x.r <= 12);
+      let p2;
+      if (!ranked.length) p2 = `Right now none of these keywords rank in Google’s top 100 (${A.cols[A.latest]}), so there is plenty of room to grow.`;
+      else {
+        p2 = `Right now ${ranked.length} of ${n} keywords rank in Google’s top 100${top12.length ? `, and ${top12.length} ${top12.length === 1 ? 'is' : 'are'} already in the top 12` : ''}. Your best position is #${ranked[0].r} for “${label(ranked[0].it)}”.`;
+      }
+      const moves = items.map((it) => movementFor(it, A, payload) || 0);
+      const up = moves.filter((m) => m > 0).length;
+      const down = moves.filter((m) => m < 0).length;
+      if (up || down) p2 += ` Since the last check, ${up} moved up and ${down} moved down.`;
+      out.push(p2);
+    }
+
+    const projWithData = A.projected.filter((c) => items.some((it) => it.data[c] != null));
+    if (projWithData.length) {
+      const lastCol = projWithData[projWithData.length - 1];
+      const firstTop = projWithData.find((c) => items.some((it) => inTopRange(it.data[c])));
+      const reach = items.filter((it) => inTopRange(it.data[lastCol]));
+      if (reach.length) {
+        out.push(`By ${A.cols[lastCol]} we project ${reach.length} of ${n} keywords to reach the top 12 (highlighted green), including ${quoteList(reach.slice(0, 3).map(label))}.${firstTop && firstTop !== lastCol ? ` The first could get there as early as ${A.cols[firstTop]}.` : ''}`);
+      } else {
+        out.push(`The dashed ranges show where we expect each keyword to rank month by month, up to ${A.cols[lastCol]}.`);
+      }
+    }
+  } else if (dataset.tab === 'onpage') {
+    const kw = find(/target keyword|keyword/i);
+    const ex = kw >= 0 ? items.find((it) => it.data[kw]) : null;
+    out.push(`We have rewritten the page title, meta description and main heading for ${n} pages of your website${ex ? `, each built around one main keyword (for example “${ex.data[kw]}” for ${label(ex)})` : ''}.`);
+    const remarks = find(/remark|note|comment/i);
+    if (remarks >= 0 && items.some((it) => it.data[remarks])) out.push('The Remarks column explains what we change on each page and why.');
+    out.push('Please check that each title and description describes the page accurately and uses the names and terms your customers know.');
+  } else if (dataset.tab === 'prompts') {
+    const ex = items.slice(0, 2).map(label);
+    out.push(`These are ${n} questions people ask AI assistants such as ChatGPT and Google’s AI Overviews, for example ${quoteList(ex)}.`);
+    out.push(`We will shape your pages so these assistants mention ${S.project.client_name || S.project.name} in their answers. Tell us if any of these don’t sound like your customers, or if we have missed an important one.`);
+  } else if (dataset.tab === 'backlinks') {
+    const type = find(/^title$|type|category/i);
+    const counts = {};
+    if (type >= 0) for (const it of items) { const v = String(it.data[type] || '').trim(); if (v) counts[v] = (counts[v] || 0) + 1; }
+    const kinds = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k.toLowerCase());
+    out.push(`We have found ${n} websites where we plan to list or mention your business${kinds.length ? `, mostly ${joinAnd(kinds)}` : ''}.`);
+    out.push('Links from trusted, relevant sites help Google and AI assistants trust your website. Let us know if there are any sites you would rather not appear on.');
+  } else if (dataset.tab === 'blogs') {
+    const status = find(/status/i);
+    const counts = {};
+    if (status >= 0) for (const it of items) { const v = String(it.data[status] || '').trim(); if (v) counts[v] = (counts[v] || 0) + 1; }
+    const parts = Object.entries(counts).map(([k, c]) => `${c} ${k.toLowerCase()}`);
+    out.push(`This is our plan of ${n} articles${parts.length ? `: ${parts.join(', ')}` : ''}. Each one answers a question your customers search for and links back to your service pages.`);
+  }
+
+  const reviewed = items.filter((it) => itemStatus(fb.get(it.item_key)).count > 0).length;
+  const open = items.filter((it) => ['changes', 'question'].includes(itemStatus(fb.get(it.item_key)).key)).length;
+  const noun = TAB_META[dataset.tab].noun;
+  out.push(reviewed === 0
+    ? `What to do: look through the list and approve the ${noun}s you are happy with. Tick several to approve them together, or press ★ Review to comment on one.`
+    : `You have reviewed ${reviewed} of ${n}${open ? `, and ${open} ${open === 1 ? 'is' : 'are'} waiting for our reply` : ''}.${reviewed < n ? ` ${n - reviewed} still need your review.` : ''}`);
+  return out;
 }
 
 /* ---------- blog documents ---------- */
@@ -763,14 +1044,11 @@ const TOUR_STEPS = [
   },
   {
     target: '#tabs',
-    title: 'Five sections to review',
+    title: 'We review in steps',
     body: [
-      '🔑 Keywords: the searches we will rank you for, with monthly rankings.',
-      '📄 On-Page SEO: page titles, meta descriptions and headings for your website.',
-      '🔗 Backlinks: websites and directories where we plan to list you.',
-      '💬 Prompts: questions people ask ChatGPT and Google AI, where we want you to appear.',
-      '✍️ Blogs: articles written for you to read and approve.',
-      'The number on each tab (e.g. 3/30) shows how many items you have reviewed.',
+      'Your project is reviewed one step at a time. When a step is done, the next one opens.',
+      '1 Keywords: the searches we will rank you for, with monthly rankings.',
+      '2 On-Page SEO · 3 Prompts · 4 Backlinks · 5 Blogs follow as the work progresses. Steps marked “Coming soon” appear once we upload them.',
     ],
   },
   {
@@ -789,6 +1067,19 @@ const TOUR_STEPS = [
     body: [
       'Press ★ Review to tell us what you think: ❤️ Love it, 👍 Like this, 🎉 This is great, ✅ Approve, ✏️ Suggest a change or ❓ Ask a question.',
       'Add your name and an optional comment. Your status then appears next to the row.',
+    ],
+  },
+  {
+    target: '.summary',
+    title: 'Start with the summary',
+    body: ['Each step opens with a short summary of what is in the table and what we need from you.'],
+  },
+  {
+    target: 'th.selcol',
+    title: 'Select several at once',
+    body: [
+      'Tick the boxes next to the keywords you want, or the box at the top to select them all.',
+      'Then approve them together, or send one comment or question about all of them.',
     ],
   },
   {
@@ -912,11 +1203,7 @@ async function startTour(i = 0) {
     return;
   }
   const hash = location.hash.slice(1);
-  if (TAB_ORDER.includes(hash)) S.tab = hash;
-  else {
-    const first = TAB_ORDER.find((t) => S.datasets.some((d) => d.tab === t));
-    if (first) S.tab = first;
-  }
+  S.tab = TAB_ORDER.includes(hash) ? hash : currentStep();
   render();
   let seen = false;
   try { seen = localStorage.getItem(`tour:${token}`) === '1'; } catch { /* ignore */ }

@@ -510,6 +510,30 @@ app.post('/api/c/:token/feedback', (req, res) => {
   res.json({ ok: true });
 });
 
+// The same feedback on several selected rows at once (e.g. approve 5 keywords).
+app.post('/api/c/:token/feedback/bulk', (req, res) => {
+  const p = projectByToken(req.params.token);
+  const b = req.body || {};
+  const v = validateClientFeedback(b);
+  if (v.type === 'reply') throw new HttpError(400, 'Replies are sent one at a time.');
+  const keys = [...new Set((Array.isArray(b.item_keys) ? b.item_keys : []).map(String))].slice(0, 1000);
+  if (!keys.length) throw new HttpError(400, 'Select at least one item.');
+  const datasetId = db.prepare('SELECT id FROM datasets WHERE id = ? AND project_id = ?').get(Number(b.dataset_id) || 0, p.id)?.id ?? null;
+  const find = db.prepare('SELECT tab, label FROM items WHERE project_id = ? AND item_key = ? ORDER BY id DESC LIMIT 1');
+  const items = keys.map((k) => ({ key: k, item: find.get(p.id, k) })).filter((x) => x.item);
+  if (!items.length) throw new HttpError(404, 'Those items are no longer available.');
+  transaction(() => {
+    const stmt = db.prepare(`
+      INSERT INTO feedback (project_id, dataset_id, tab, item_key, item_label, type, author_role, name, comment, status)
+      VALUES (?, ?, ?, ?, ?, ?, 'client', ?, ?, ?)
+    `);
+    for (const { key, item } of items) {
+      stmt.run(p.id, datasetId, item.tab, key, item.label, v.type, v.name, v.comment, NEEDS_ACTION.has(v.type) ? 'open' : 'noted');
+    }
+  });
+  res.json({ ok: true, count: items.length });
+});
+
 // Sign off a whole sheet or document at once.
 app.post('/api/c/:token/datasets/:id/approve-all', (req, res) => {
   const p = projectByToken(req.params.token);

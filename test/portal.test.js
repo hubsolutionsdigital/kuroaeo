@@ -111,6 +111,9 @@ test('admin upload → client review → agency reply', async (t) => {
   assert.equal((await call('POST', `/api/c/${tok}/feedback`, { item_key: item.item_key, type: 'change', name: 'Dorothy' })).status, 400, 'a change needs a comment');
   assert.equal((await call('POST', `/api/c/${tok}/feedback`, { item_key: item.item_key, type: 'love', name: 'Dorothy' })).status, 200);
   assert.equal((await call('POST', `/api/c/${tok}/feedback`, { item_key: item.item_key, type: 'question', name: 'Dorothy', comment: 'Why this one?' })).status, 200);
+  const bulk = await call('POST', `/api/c/${tok}/feedback/bulk`, { item_keys: ds.items.map((i) => i.item_key), dataset_id: kwSet.id, type: 'like', name: 'Dorothy' });
+  assert.equal(bulk.body.count, 2, 'bulk feedback covers every selected item');
+  assert.equal((await call('POST', `/api/c/${tok}/feedback/bulk`, { item_keys: [], type: 'approve', name: 'Dorothy' })).status, 400);
   const approveAll = await call('POST', `/api/c/${tok}/datasets/${kwSet.id}/approve-all`, { name: 'Dorothy' });
   assert.equal(approveAll.body.approved, 2);
 
