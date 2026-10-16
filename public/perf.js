@@ -2,6 +2,8 @@
    Charts are plain SVG: one measure per chart, thin columns with rounded tops,
    hover tooltips and a table view for every chart. */
 
+const COUNTRY_NAMES = { sgp: 'Singapore', mys: 'Malaysia', aus: 'Australia', gbr: 'the UK', usa: 'the US', hkg: 'Hong Kong' };
+
 const VIZ = {
   series: '#2a78d6', // categorical slot 1 (single-series charts)
   ordinal: ['#184f95', '#2a78d6', '#5598e7', '#86b6ef'], // top 3 / 4-10 / 11-30 / 31-100, validated ordinal ramp
@@ -300,20 +302,29 @@ async function renderPerformance(root) {
       })));
   }
 
-  // Keyword table: Google's own average position (Search Console) and, if on, SEMrush today.
+  // Keyword table: Google's own position (Search Console) in the client's
+  // country: the last 7 days, and the best single day in the last 28.
   let kwTable = null;
-  const withData = data.keywords.filter((k) => k.gscPosition !== null || k.semrushPosition !== null);
+  const withData = data.keywords.filter((k) => k.gscPosition !== null || k.gscBest !== null || k.semrushPosition !== null);
   if (data.keywords.length && (data.sources.gsc || data.sources.semrush)) {
     const showLive = data.sources.semrush && liveOn;
+    const pos = (v) => (v === null || v === undefined ? null : Math.round(v * 10) / 10);
+    const sortKey = (k) => Math.min(...[k.gscBest, k.gscPosition, showLive ? k.semrushPosition : null].filter((v) => v !== null && v !== undefined), 1000);
+    const rows = [...data.keywords].sort((x, y) => sortKey(x) - sortKey(y));
+    const page1 = data.keywords.filter((k) => k.gscBest !== null && k.gscBest <= 10).length;
+    const place = COUNTRY_NAMES[data.country] ? ` in ${COUNTRY_NAMES[data.country]}` : '';
+    const day = (d) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '');
     kwTable = h('div', { class: 'card card-pad' },
       h('h3', { style: { margin: '0 0 4px' } }, 'Your keywords in Google today'),
       h('div', { class: 'muted small', style: { marginBottom: '10px' } },
-        `Average position over the last 28 days from Search Console${showLive ? ', and today’s position from SEMrush' : ''}. ${withData.length} of ${data.keywords.length} keywords have data.`),
+        page1 ? h('strong', { style: { color: 'var(--ok-ink)' } }, `${page1} ${page1 === 1 ? 'keyword has' : 'keywords have'} reached page 1 of Google this month. `) : null,
+        `Google’s own numbers from Search Console, for searches${place}. “This week” is the average position over the last 7 days; “Best day” is the highest daily position in the last 28 days${showLive ? '; SEMrush shows today’s position' : ''}. ${withData.length} of ${data.keywords.length} keywords have data.`),
       h('div', { class: 'table-wrap', style: { maxHeight: '420px' } }, h('table', { class: 'data' },
-        h('thead', null, h('tr', null, h('th', null, 'Keyword'), h('th', null, 'Google position (28 days)'), h('th', null, 'Clicks (28 days)'), showLive ? h('th', null, 'SEMrush today') : null)),
-        h('tbody', null, data.keywords.map((k) => h('tr', null,
+        h('thead', null, h('tr', null, h('th', null, 'Keyword'), h('th', null, 'Best day (28 days)'), h('th', null, 'This week (avg.)'), h('th', null, 'Clicks (7 days)'), showLive ? h('th', null, 'SEMrush today') : null)),
+        h('tbody', null, rows.map((k) => h('tr', null,
           h('td', { class: 'primary' }, k.keyword),
-          h('td', null, k.gscPosition !== null ? rankBadge(Math.round(k.gscPosition * 10) / 10) : h('span', { class: 'muted' }, 'Not yet')),
+          h('td', null, k.gscBest !== null ? [rankBadge(pos(k.gscBest)), k.gscBestDate ? h('span', { class: 'muted small', style: { marginLeft: '6px' } }, day(k.gscBestDate)) : null] : h('span', { class: 'muted' }, 'Not yet')),
+          h('td', null, k.gscPosition !== null ? rankBadge(pos(k.gscPosition)) : h('span', { class: 'muted' }, '–')),
           h('td', { class: 'num' }, k.gscClicks !== null ? compact(k.gscClicks) : '–'),
           showLive ? h('td', null, k.semrushPosition !== null ? rankBadge(k.semrushPosition) : h('span', { class: 'muted' }, 'Not in top 100'),
             k.semrushUrl ? linkIcon(k.semrushUrl) : null) : null))))),

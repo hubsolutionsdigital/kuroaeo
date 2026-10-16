@@ -346,6 +346,8 @@ async function renderPerformanceAdmin(body) {
   const ga4 = h('input', { class: 'input', id: 'pf-ga4', value: s.ga4Property || '', placeholder: 'e.g. 412345678', inputmode: 'numeric' });
   const gsc = h('input', { class: 'input', id: 'pf-gsc', value: s.gscSite || '', placeholder: 'sc-domain:example.com or https://www.example.com/' });
   const start = h('input', { class: 'input', id: 'pf-start', type: 'month', value: s.start || '' });
+  const country = h('select', { class: 'select', id: 'pf-country' }, [['sgp', 'Singapore'], ['mys', 'Malaysia'], ['aus', 'Australia'], ['gbr', 'United Kingdom'], ['usa', 'United States'], ['hkg', 'Hong Kong'], ['', 'All countries']]
+    .map(([v, l]) => h('option', { value: v, selected: (s.country ?? 'sgp') === v }, l)));
   const semOn = h('input', { type: 'checkbox', id: 'pf-sem-on', checked: Boolean(sem.enabled) });
   const semClient = h('input', { type: 'checkbox', id: 'pf-sem-client', checked: Boolean(sem.clientToggle) });
   const semDomain = h('input', { class: 'input', id: 'pf-sem-domain', value: sem.domain || p.website || '', placeholder: 'example.com' });
@@ -354,7 +356,7 @@ async function renderPerformanceAdmin(body) {
 
   const save = async () => {
     await api('PUT', `/api/admin/projects/${p.id}/analytics`, {
-      ga4Property: ga4.value, gscSite: gsc.value, start: start.value,
+      ga4Property: ga4.value, gscSite: gsc.value, start: start.value, country: country.value,
       semrush: { enabled: semOn.checked, clientToggle: semClient.checked, domain: semDomain.value, database: semDb.value },
     });
   };
@@ -436,7 +438,8 @@ async function renderPerformanceAdmin(body) {
     h('div', { class: 'two-col' },
       h('label', { class: 'field' }, 'GA4 property ID', ga4),
       h('label', { class: 'field' }, 'Search Console property', gsc),
-      h('label', { class: 'field' }, 'Campaign start month (for “since we started” growth)', start)),
+      h('label', { class: 'field' }, 'Campaign start month (for “since we started” growth)', start),
+      h('label', { class: 'field' }, 'Keyword positions for searches from', country)),
     g.mode === 'oauth' ? pickNote : null,
     h('div', { class: 'row-flex' }, saveBtn, syncBtn,
       s.lastSync ? h('span', { class: 'muted small' }, `Last synced ${timeAgo(s.lastSync.replace('T', ' ').slice(0, 19))}. Data refreshes daily.`) : null),

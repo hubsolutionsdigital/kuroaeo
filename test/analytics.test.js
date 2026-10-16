@@ -63,6 +63,15 @@ test('syncs Search Console, GA4 and SEMrush into monthly numbers', async () => {
           { keys: ['2026-11-01'], clicks: 80, impressions: 500, position: 8 },
         ] });
       }
+      // Keyword positions are filtered to the client's country (Singapore by default).
+      assert.equal(body.dimensionFilterGroups[0].filters[0].expression, 'sgp');
+      if (body.dimensions[1] === 'date') {
+        return json({ rows: [
+          { keys: ['Hearing Aids', '2026-10-03'], clicks: 2, impressions: 40, position: 9.2 },
+          { keys: ['Hearing Aids', '2026-10-05'], clicks: 3, impressions: 50, position: 4 },
+          { keys: ['hearing test', '2026-10-04'], clicks: 0, impressions: 5, position: 15 },
+        ] });
+      }
       return json({ rows: [{ keys: ['Hearing Aids'], clicks: 12, impressions: 400, position: 7.4 }] });
     }
     if (url.includes('analyticsdata')) {
@@ -96,6 +105,11 @@ test('syncs Search Console, GA4 and SEMrush into monthly numbers', async () => {
   assert.equal(d.series.ga4.ai_sessions['2026-11'], 8);
   const kw = d.keywords.find((k) => k.keyword === 'hearing aids');
   assert.equal(kw.gscPosition, 7.4);
+  assert.equal(kw.gscBest, 4, 'best single day');
+  assert.equal(kw.gscBestDate, '2026-10-05');
+  const test2 = d.keywords.find((k) => k.keyword === 'hearing test');
+  assert.equal(test2.gscPosition, null, 'no data this week');
+  assert.equal(test2.gscBest, 15);
   assert.equal(kw.semrushPosition, 6);
   assert.deepEqual(d.timelines.seo.map((p) => [p.label, p.top10]), [['Start', 0], ['Month 1', 1]]);
 });

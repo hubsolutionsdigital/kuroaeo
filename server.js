@@ -521,6 +521,7 @@ app.put('/api/admin/projects/:id/analytics', requireAdmin, (req, res) => {
     ga4Property: str(b.ga4Property, 40).replace(/[^0-9]/g, ''),
     gscSite: str(b.gscSite, 200),
     start: start || null,
+    country: ['', 'sgp', 'mys', 'aus', 'gbr', 'usa', 'hkg'].includes(b.country) ? b.country : 'sgp',
     semrush: {
       enabled: Boolean(b.semrush && b.semrush.enabled),
       clientToggle: Boolean(b.semrush && b.semrush.clientToggle),
