@@ -432,10 +432,10 @@ function csvCell(v) {
 app.get('/api/admin/projects/:id/feedback.csv', requireAdmin, (req, res) => {
   const project = getProject(req.params.id);
   const all = listFeedback(project.id);
-  const header = ['Date (UTC)', 'Tab', 'Item', 'Type', 'Name', 'Role', 'Comment', 'Highlighted text', 'Status', 'Reply to'];
+  const header = ['Date (UTC)', 'Tab', 'Item', 'Section', 'Type', 'Name', 'Role', 'Comment', 'Highlighted text', 'Status', 'Reply to'];
   const lines = [header.join(',')];
   for (const f of all) {
-    lines.push([f.created_at, f.tab, f.item_label, f.type, f.name, f.author_role, f.comment, f.quote, f.status, f.parent_id || '']
+    lines.push([f.created_at, f.tab, f.item_label, f.area, f.type, f.name, f.author_role, f.comment, f.quote, f.status, f.parent_id || '']
       .map(csvCell).join(','));
   }
   const filename = `${project.name.replace(/[^a-z0-9]+/gi, '-')}-feedback.csv`;
@@ -482,7 +482,7 @@ function validateClientFeedback(b) {
   if (!FEEDBACK_TYPES.includes(type)) throw new HttpError(400, 'Pick how you feel about it first.');
   if (!name) throw new HttpError(400, 'Please add your name so the team knows who is reviewing.');
   if ((NEEDS_ACTION.has(type) || type === 'reply') && !comment) throw new HttpError(400, 'Please add a comment.');
-  return { type, name, comment, quote: str(b.quote, 1000) };
+  return { type, name, comment, quote: str(b.quote, 1000), area: str(b.area, 200) };
 }
 
 app.post('/api/c/:token/feedback', (req, res) => {
@@ -510,9 +510,9 @@ app.post('/api/c/:token/feedback', (req, res) => {
   if (!item) throw new HttpError(404, 'That item is no longer available.');
   const datasetId = db.prepare('SELECT id FROM datasets WHERE id = ? AND project_id = ?').get(Number(b.dataset_id) || 0, p.id)?.id ?? null;
   db.prepare(`
-    INSERT INTO feedback (project_id, dataset_id, tab, item_key, item_label, type, author_role, name, comment, quote, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'client', ?, ?, ?, ?)
-  `).run(p.id, datasetId, item.tab, b.item_key, item.label, v.type, v.name, v.comment, v.quote, NEEDS_ACTION.has(v.type) ? 'open' : 'noted');
+    INSERT INTO feedback (project_id, dataset_id, tab, item_key, item_label, type, author_role, name, comment, quote, area, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'client', ?, ?, ?, ?, ?)
+  `).run(p.id, datasetId, item.tab, b.item_key, item.label, v.type, v.name, v.comment, v.quote, v.area, NEEDS_ACTION.has(v.type) ? 'open' : 'noted');
   res.json({ ok: true });
 });
 

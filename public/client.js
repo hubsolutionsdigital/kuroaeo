@@ -59,25 +59,25 @@ async function refreshFeedback() {
   await renderTabBody(true);
 }
 
-async function sendFeedback(item, datasetId, { type, name, comment }, quote) {
+async function sendFeedback(item, datasetId, { type, name, comment }, quote, area) {
   await api('POST', `/api/c/${encodeURIComponent(token)}/feedback`, {
-    item_key: item.item_key, dataset_id: datasetId, type, name, comment, quote: quote || '',
+    item_key: item.item_key, dataset_id: datasetId, type, name, comment, quote: quote || '', area: area || '',
   });
   setName(name);
   toast(type === 'approve' ? `Approved — thank you, ${name}!` : `Thanks, ${name}! Your feedback was sent to the team.`);
   await refreshFeedback();
 }
 
-function feedbackPopover(anchor, item, datasetId, { title, quote, preselect } = {}) {
+function feedbackPopover(anchor, item, datasetId, { title, quote, preselect, area } = {}) {
   const noun = TAB_META[S.tab].noun;
   openFeedbackPopover({
     anchor,
     title: title || `What do you think of this ${noun}?`,
-    context: item.label,
+    context: area ? `${item.label} · ${area}` : item.label,
     quote,
     preselect,
     getName,
-    onSubmit: (v) => sendFeedback(item, datasetId, v, quote),
+    onSubmit: (v) => sendFeedback(item, datasetId, v, quote, area),
   });
 }
 
@@ -997,6 +997,96 @@ function highlightQuote(root, quote, id) {
 let selBtn = null;
 function hideSelBtn() { if (selBtn) { selBtn.remove(); selBtn = null; } }
 
+// Article blocks (paragraphs, headings, lists, images) and the section each sits in.
+const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'TABLE', 'BLOCKQUOTE']);
+function blockOf(container, node) {
+  let el = node && node.nodeType === 3 ? node.parentElement : node;
+  while (el && el !== container) {
+    if (el.classList && el.classList.contains('blk')) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+function areaOf(block) {
+  if (!block) return '';
+  if (block.classList.contains('seo-card')) return 'SEO details';
+  if (block.tagName === 'H1') return 'Title';
+  let el = block;
+  while (el) {
+    if (/^H[2-4]$/.test(el.tagName)) return el.textContent.replace(/\s+/g, ' ').trim().slice(0, 200);
+    el = el.previousElementSibling;
+  }
+  return 'Introduction';
+}
+function blockQuote(block) {
+  const text = block.textContent.replace(/\s+/g, ' ').trim();
+  const img = block.querySelector('img');
+  if (img && text.length < 3) return `Image: ${img.getAttribute('alt') || 'picture'}`.replace(/\s+/g, ' ').slice(0, 300);
+  return text.slice(0, 1000);
+}
+
+// One-click feedback on a whole block: a 💬 button appears beside the block
+// under the pointer (or the block tapped on a phone).
+function setupBlocks(container, prose, item, datasetId) {
+  const blocks = [...prose.children].filter((el) => BLOCK_TAGS.has(el.tagName) && (el.textContent.trim() || el.querySelector('img')));
+  const seo = container.querySelector('.seo-card');
+  if (seo) blocks.unshift(seo);
+  blocks.forEach((b) => b.classList.add('blk'));
+  const btn = h('button', { class: 'blk-btn', type: 'button', title: 'Give feedback on this part', 'aria-label': 'Give feedback on this part', hidden: true }, '💬');
+  container.append(btn);
+  let current = null;
+  const show = (block) => {
+    current = block;
+    container.querySelectorAll('.blk.hover').forEach((x) => x.classList.remove('hover'));
+    block.classList.add('hover');
+    const cr = container.getBoundingClientRect();
+    const br = block.getBoundingClientRect();
+    btn.style.top = `${br.top - cr.top}px`;
+    btn.hidden = false;
+  };
+  for (const b of blocks) {
+    b.addEventListener('mouseenter', () => show(b));
+    b.addEventListener('click', () => { const sel = window.getSelection(); if (!sel || sel.isCollapsed) show(b); });
+  }
+  container.addEventListener('mouseleave', () => { btn.hidden = true; container.querySelectorAll('.blk.hover').forEach((x) => x.classList.remove('hover')); });
+  btn.addEventListener('click', () => {
+    if (!current) return;
+    feedbackPopover(btn, item, datasetId, { title: 'What do you think of this part?', quote: blockQuote(current), area: areaOf(current) });
+  });
+}
+
+/* Feedback log beside an article: every comment with its section, filterable. */
+const LOG_FILTERS = [
+  ['all', 'All', () => true],
+  ['loved', '❤️ Loved', (f) => FB_TYPES[f.type] && FB_TYPES[f.type].pos],
+  ['approve', '✅ Approved', (f) => f.type === 'approve'],
+  ['change', '✏️ Changes', (f) => f.type === 'change'],
+  ['question', '❓ Questions', (f) => f.type === 'question'],
+  ['open', 'Waiting for reply', (f) => f.status === 'open'],
+];
+function feedbackLog(side, title, entries, opts = {}) {
+  const key = opts.key || 'log';
+  const filterNow = S.logFilter && S.logFilter[key] ? S.logFilter[key] : 'all';
+  const list = h('div', { class: 'log-list' });
+  const counts = Object.fromEntries(LOG_FILTERS.map(([k, , fn]) => [k, entries.filter((e) => fn(e.t.root)).length]));
+  const seg = h('div', { class: 'log-filters' });
+  const draw = (k) => {
+    S.logFilter = { ...(S.logFilter || {}), [key]: k };
+    seg.replaceChildren(...LOG_FILTERS.filter(([fk]) => fk === 'all' || counts[fk]).map(([fk, label]) => h('button', {
+      class: fk === k ? 'active' : '', onclick: () => draw(fk),
+    }, label, h('span', { class: 'n' }, counts[fk]))));
+    const fn = LOG_FILTERS.find(([fk]) => fk === k)[2];
+    const shown = entries.filter((e) => fn(e.t.root));
+    list.replaceChildren(...(shown.length ? shown.map((e) => {
+      const card = renderThread(e.t, { onReply: sendReply, showItem: opts.showItem, onQuoteClick: (root) => scrollToMark(root.id) });
+      card.dataset.fid = e.t.root.id;
+      return card;
+    }) : [h('div', { class: 'muted small' }, entries.length ? 'Nothing in this filter.' : opts.empty || 'No feedback yet.')]));
+  };
+  side.append(h('div', { class: 'log-head' }, h('h4', null, `${title} (${entries.length})`)), seg, list);
+  draw(counts[filterNow] || filterNow === 'all' ? filterNow : 'all');
+}
+
 function setupSelection(container, item, datasetId) {
   const check = () => {
     const sel = window.getSelection();
@@ -1012,9 +1102,10 @@ function setupSelection(container, item, datasetId) {
     selBtn.style.top = `${rect.top + window.scrollY - 46}px`;
     selBtn.addEventListener('mousedown', (e) => e.preventDefault());
     const saved = range.cloneRange();
+    const area = areaOf(blockOf(container, range.startContainer));
     selBtn.addEventListener('click', () => {
       hideSelBtn();
-      feedbackPopover(saved.getBoundingClientRect(), item, datasetId, { title: 'What do you think of this part?', quote });
+      feedbackPopover(saved.getBoundingClientRect(), item, datasetId, { title: 'What do you think of this part?', quote, area });
       window.getSelection().removeAllRanges();
     });
     document.body.append(selBtn);
@@ -1087,9 +1178,8 @@ function renderDoc(payload) {
       main.append(h('div', { class: 'row-flex', style: { marginTop: '24px', justifyContent: 'flex-end' } },
         h('button', { class: 'btn primary', onclick: () => go(articles[0].item_key) }, `Start reading: ${articles[0].data.title} →`)));
     }
-    side.append(h('h4', null, 'Overview comments'));
-    const threads = checks.flatMap((c) => threadsOf(fb.get(c.item_key) || []));
-    side.append(...(threads.length ? threads.reverse().map((t) => renderThread(t, { showItem: true, onReply: sendReply })) : [h('div', { class: 'muted small' }, 'No comments yet.')]));
+    const all = [...checks, ...articles].flatMap((c) => threadsOf(fb.get(c.item_key) || [])).reverse().map((t) => ({ t }));
+    feedbackLog(side, 'Feedback log: all articles', all, { key: `doc:${dataset.id}`, showItem: true });
   } else {
     const a = articles.find((x) => x.item_key === section);
     const st = itemStatus(fb.get(a.item_key));
@@ -1112,7 +1202,7 @@ function renderDoc(payload) {
     selectable.append(prose);
 
     main.append(bar(),
-      h('div', { class: 'select-hint', style: { marginBottom: '16px' } }, '💡 Tip: highlight any text in the article to comment on that part.'),
+      h('div', { class: 'select-hint', style: { marginBottom: '16px' } }, '💡 Point at any paragraph, heading or image and press 💬 to tell us what you love or want changed. You can also highlight exact words.'),
       selectable);
 
     const idx = articles.indexOf(a);
@@ -1123,33 +1213,31 @@ function renderDoc(payload) {
         idx < articles.length - 1 ? h('button', { class: 'btn primary', onclick: () => go(articles[idx + 1].item_key) }, 'Next article →') : null)));
 
     const threads = threadsOf(fb.get(a.item_key) || []);
-    side.append(h('h4', null, `Comments on this article (${threads.length})`));
-    const cards = new Map();
-    if (!threads.length) side.append(h('div', { class: 'muted small' }, 'No comments yet. Highlight any text to leave one.'));
-    // Order comments by where their highlighted text sits in the article.
+    // Order the log by where each comment sits in the article.
     setTimeout(() => {
       const order = [];
       for (const t of threads) {
-        const marks = t.root.quote ? highlightQuote(selectable, t.root.quote, t.root.id) : [];
+        let marks = t.root.quote ? highlightQuote(selectable, t.root.quote, t.root.id) : [];
+        if (!marks.length && /^Image: /.test(t.root.quote)) {
+          // Images have no text to highlight: mark the picture itself.
+          const block = [...selectable.querySelectorAll('.blk')].find((el) => blockQuote(el) === t.root.quote);
+          if (block) { block.classList.add('img-fb'); block.dataset.fid = t.root.id; marks = [block]; }
+        }
         for (const m of marks) m.addEventListener('click', () => focusThread(t.root.id));
         order.push({ t, pos: marks[0] ? marks[0].getBoundingClientRect().top + window.scrollY : (t.root.quote ? 1e9 : -1) });
       }
       order.sort((x, y) => x.pos - y.pos);
-      for (const { t } of order) {
-        const card = renderThread(t, { onReply: sendReply, onQuoteClick: (root) => scrollToMark(root.id) });
-        card.dataset.fid = t.root.id;
-        cards.set(t.root.id, card);
-        side.append(card);
-      }
+      feedbackLog(side, 'Feedback log', order, { key: a.item_key, empty: 'No feedback yet. Point at any part of the article and press 💬.' });
     });
     setupSelection(selectable, a, dataset.id);
+    setupBlocks(selectable, prose, a, dataset.id);
   }
 
   return h('div', { class: 'doc-layout' }, nav, main, side);
 }
 
 function scrollToMark(id) {
-  const marks = document.querySelectorAll(`mark.hl[data-fid="${id}"]`);
+  const marks = document.querySelectorAll(`mark.hl[data-fid="${id}"], .img-fb[data-fid="${id}"]`);
   if (!marks.length) { toast('That text has changed since the comment was made.'); return; }
   document.querySelectorAll('mark.hl.active').forEach((m) => m.classList.remove('active'));
   marks.forEach((m) => m.classList.add('active'));
@@ -1234,7 +1322,8 @@ const TOUR_STEPS = [
     title: 'Reviewing blog articles',
     body: [
       'Open an article and read it as it will appear on your site.',
-      'Highlight any sentence and press 💬 Comment to give feedback on that part.',
+      'Point at any paragraph, heading or image and press 💬 to say what you love or want changed. You can also highlight exact words.',
+      'Every comment is kept in the Feedback log beside the article, with the section it is about and our replies.',
       'Confirm the review points in the Overview, then press ✓ Approve article when you are happy.',
     ],
   },

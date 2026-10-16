@@ -267,7 +267,8 @@ function renderThread({ root, replies }, opts = {}) {
   const card = h('div', { class: `fb${needs && root.status === 'open' ? ' open' : ''}` },
     opts.showItem ? h('div', { class: 'fb-item-label' }, `${TAB_META[root.tab] ? TAB_META[root.tab].label : root.tab} · ${root.item_label}`) : null,
     head,
-    root.quote ? h('div', { class: 'fb-quote', title: 'Show in text', onclick: () => opts.onQuoteClick && opts.onQuoteClick(root) }, `“${root.quote}”`) : null,
+    root.area ? h('div', { class: 'fb-area' }, `📍 ${root.area}`) : null,
+    root.quote ? h('div', { class: 'fb-quote', title: 'Show in text', onclick: () => opts.onQuoteClick && opts.onQuoteClick(root) }, `“${root.quote.length > 220 ? `${root.quote.slice(0, 220)}…` : root.quote}”`) : null,
     root.comment ? h('div', { class: 'fb-body' }, root.comment) : null);
 
   if (replies.length) {
