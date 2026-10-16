@@ -39,6 +39,29 @@ test('parses sheets the way the team formats them', async () => {
   assert.equal(tasks.suggestedTab, 'skip');
 });
 
+test('reads Google Sheets exports with comments and labelled ranking columns', async () => {
+  const JSZip = require('jszip');
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Keywords');
+  ws.addRow([null, null, 'Google AI Overview', 'ChatGpt Ranking', 'Google Ranking']);
+  ws.addRow(['No.', 'Keyword', 'Current Ranking - 28-09-2026', 'Current Ranking - 28-09-2026', 'Current Ranking - 28-09-2026']);
+  ws.addRow([1, 'hearing aid sg', 'NA', 'NA', 27]);
+  ws.getCell('B3').note = 'Check this one';
+  // Rewrite relationship targets the way Google Sheets does (absolute paths).
+  const zip = await JSZip.loadAsync(await wb.xlsx.writeBuffer());
+  for (const name of Object.keys(zip.files).filter((n) => n.endsWith('.rels'))) {
+    const xml = await zip.file(name).async('string');
+    zip.file(name, xml.replace(/Target="(?:\.\.\/)?(?!\/|https?:)([^"]+)"/g, (m, t) => `Target="/xl/${t.replace(/^xl\//, '')}"`));
+  }
+  const [sheet] = await parseWorkbook(await zip.generateAsync({ type: 'nodebuffer' }));
+  assert.deepEqual(sheet.columns.slice(2), [
+    'Google AI Overview · Current Ranking - 28-09-2026',
+    'ChatGpt Ranking · Current Ranking - 28-09-2026',
+    'Google Ranking · Current Ranking - 28-09-2026',
+  ]);
+  assert.equal(sheet.rows[0][4], 27);
+});
+
 test('admin upload → client review → agency reply', async (t) => {
   const server = app.listen(0);
   t.after(() => server.close());

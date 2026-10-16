@@ -208,9 +208,9 @@ async function renderTabBody(keepScroll) {
         : h('strong', { style: { fontSize: '17px' } }, sel.name)),
     h('div', { class: 'right' },
       versions.length > 1
-        ? h('label', { class: 'row-flex small muted' }, 'Report month',
+        ? h('label', { class: 'row-flex small muted' }, 'Version',
           (() => {
-            const s = h('select', { class: 'select', style: { width: 'auto' } }, versions.map((v) => h('option', { value: v.id, selected: v.id === sel.id }, `${v.period || 'Undated'}${v === versions[0] ? ' (latest)' : ''}`)));
+            const s = h('select', { class: 'select', style: { width: 'auto' } }, versions.map((v) => h('option', { value: v.id, selected: v.id === sel.id }, `${v.period || 'Undated'} · uploaded ${parseUTC(v.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${v === versions[0] ? ' (latest)' : ''}`)));
             s.addEventListener('change', () => { sel.id = Number(s.value); renderTabBody(); });
             return s;
           })())
@@ -290,9 +290,24 @@ function analyseColumns(payload) {
   const volume = cols.findIndex((c) => COLS.volume.test(c) && !/band/i.test(c));
   const withData = actual.filter(hasData);
   const latest = withData.length ? withData[withData.length - 1] : -1;
-  const prevCol = withData.length > 1 ? withData[withData.length - 2] : -1;
-  const visible = cols.map((_, i) => i).filter((i) => i === dataset.primary || actual.includes(i) || projected.includes(i) || hasData(i));
+  // Only compare a ranking with an earlier one from the same series, so
+  // "Google Ranking" is never compared with "ChatGPT Ranking".
+  const series = (c) => rankSeries(cols[c]);
+  const sameSeries = withData.filter((c) => c !== latest && c < latest && series(c) === series(latest));
+  const prevCol = latest >= 0 && sameSeries.length ? sameSeries[sameSeries.length - 1] : -1;
+  const visible = cols.map((_, i) => i).filter((i) => i === dataset.primary || i === numIdx || actual.includes(i) || projected.includes(i) || hasData(i));
   return { cols, numIdx, actual, projected, volume, latest, prevCol, visible, hidden: cols.length - visible.length };
+}
+
+const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec';
+function rankSeries(header) {
+  return header.toLowerCase()
+    .replace(/\(?\s*month\s*\d+(\s*-\s*\d+)?\s*\)?/g, '')
+    .replace(/\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/g, '')
+    .replace(new RegExp(`\\b(${MONTHS})[a-z]*\\.?(\\s+\\d{2,4})?\\b`, 'g'), '')
+    .replace(/\b(actual|current|existing|latest)\b/g, '')
+    .replace(/[^a-z]+/g, ' ')
+    .trim();
 }
 
 function movementFor(item, A, payload) {
@@ -343,7 +358,7 @@ function renderStats(payload, A, fb) {
 
 function renderCell(v, c, A, item, payload) {
   const td = h('td');
-  if (c === A.numIdx) { td.className = 'idx'; td.textContent = v ?? ''; return td; }
+  if (c === A.numIdx) { td.className = 'idx'; td.textContent = v ?? payload.items.indexOf(item) + 1; return td; }
   if (c === payload.dataset.primary) {
     td.className = 'primary';
     if (isUrlish(v)) td.append(linkFor(v)); else td.textContent = v ?? '';

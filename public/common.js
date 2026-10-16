@@ -304,7 +304,7 @@ function renderThread({ root, replies }, opts = {}) {
 const COLS = {
   numbering: /^(no\.?|s\/?n|#|sn|sr\.?\s*no\.?|serial)$/i,
   actualRank: /(actual|current|existing|latest).*(rank|position)|^(rank|ranking|position|google rank(ing)?|current position)$/i,
-  projected: /phase|projected|target|forecast|^month\s*\d+$/i,
+  projected: /phase|projected|forecast|target\s*(rank|position|range)|^month\s*\d+$/i,
   volume: /volume|search vol|traffic|searches/i,
 };
 
