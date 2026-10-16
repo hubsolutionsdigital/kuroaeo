@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const multer = require('multer');
@@ -534,13 +535,29 @@ app.post('/api/c/:token/datasets/:id/approve-all', (req, res) => {
 // ---------- pages ----------
 
 const pub = path.join(__dirname, 'public');
-app.use('/static', express.static(pub, { maxAge: '1h' }));
+
+// Pages are never cached, and every script/stylesheet link carries a hash of the
+// current files, so a new deploy shows up on the next page load.
+const assetVersion = crypto.createHash('sha1')
+  .update(fs.readdirSync(pub).sort().map((f) => fs.readFileSync(path.join(pub, f))).join('\n'))
+  .digest('hex').slice(0, 10);
+const page = (file) => fs.readFileSync(path.join(pub, file), 'utf8')
+  .replace(/(\/static\/[\w.-]+\.(?:js|css))"/g, `$1?v=${assetVersion}"`);
+const pages = { admin: page('admin.html'), client: page('client.html') };
+function sendPage(res, name) {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(pages[name]);
+}
+
+app.use('/static', express.static(pub, {
+  setHeaders: (res, file, stat) => res.setHeader('Cache-Control', res.req.query.v ? 'public, max-age=31536000, immutable' : 'no-cache'),
+}));
 app.get('/', (req, res) => res.redirect('/admin'));
-app.get('/admin', (req, res) => res.sendFile(path.join(pub, 'admin.html')));
+app.get('/admin', (req, res) => sendPage(res, 'admin'));
 app.get('/p/:token', (req, res) => {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('Referrer-Policy', 'no-referrer');
-  res.sendFile(path.join(pub, 'client.html'));
+  sendPage(res, 'client');
 });
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
