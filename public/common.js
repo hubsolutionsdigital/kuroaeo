@@ -320,7 +320,7 @@ function rankValue(v) {
 function rankBadge(v) {
   const n = rankValue(v);
   if (n === null) return h('span', { class: 'rank rnone' }, v === null || v === undefined ? '–' : String(v));
-  const cls = n <= 3 ? 'r3' : n <= 10 ? 'r10' : n <= 30 ? 'r30' : n <= 100 ? 'r100' : 'rnone';
+  const cls = n <= 3 ? 'r3' : n <= 12 ? 'r10' : n <= 30 ? 'r30' : n <= 100 ? 'r100' : 'rnone';
   return h('span', { class: `rank ${cls}`, title: n > 100 ? 'Not in the top 100 yet' : `Position ${n}` }, n > 100 ? '>100' : String(n));
 }
 

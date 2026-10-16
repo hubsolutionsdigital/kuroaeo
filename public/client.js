@@ -296,7 +296,9 @@ function analyseColumns(payload) {
   const sameSeries = withData.filter((c) => c !== latest && c < latest && series(c) === series(latest));
   const prevCol = latest >= 0 && sameSeries.length ? sameSeries[sameSeries.length - 1] : -1;
   const visible = cols.map((_, i) => i).filter((i) => i === dataset.primary || i === numIdx || actual.includes(i) || projected.includes(i) || hasData(i));
-  return { cols, numIdx, actual, projected, volume, latest, prevCol, visible, hidden: cols.length - visible.length };
+  const userHidden = hiddenCols(dataset);
+  const shownCols = visible.filter((c) => c === dataset.primary || c === numIdx || !userHidden.has(cols[c]));
+  return { cols, numIdx, actual, projected, volume, latest, prevCol, visible: shownCols, allVisible: visible, hidden: cols.length - visible.length };
 }
 
 const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec';
@@ -361,7 +363,7 @@ function renderCell(v, c, A, item, payload) {
   if (c === A.numIdx) { td.className = 'idx'; td.textContent = v ?? payload.items.indexOf(item) + 1; return td; }
   if (c === payload.dataset.primary) {
     td.className = 'primary';
-    if (isUrlish(v)) td.append(linkFor(v)); else td.textContent = v ?? '';
+    if (isUrlish(v)) { td.classList.add('nowrap'); td.append(linkFor(v)); } else td.textContent = v ?? '';
     return td;
   }
   if (A.actual.includes(c)) {
@@ -374,26 +376,89 @@ function renderCell(v, c, A, item, payload) {
     return td;
   }
   if (A.projected.includes(c)) {
-    td.append(v === null || v === undefined ? h('span', { class: 'muted' }, '–') : h('span', { class: 'range', title: 'Projected range' }, String(v)));
+    if (v === null || v === undefined) { td.append(h('span', { class: 'muted' }, '–')); return td; }
+    const top = inTopRange(v);
+    td.className = 'nowrap';
+    td.append(h('span', { class: `range${top ? ' top' : ''}`, title: top ? 'Projected to rank within the top 12' : 'Projected range' }, String(v)));
     return td;
   }
   if (v === null || v === undefined) return td;
   if (typeof v === 'number') { td.className = 'num'; td.textContent = formatNumber(v); return td; }
   const s = String(v);
-  if (isUrlish(s)) { td.append(linkFor(s)); return td; }
-  if (s.length > 90) {
+  if (isUrlish(s)) { td.className = 'linkcell'; td.append(linkIcon(s)); return td; }
+  if (s.length > 40) {
     const d = h('div', { class: 'clamp', title: 'Click to expand' }, s);
     d.addEventListener('click', () => d.classList.toggle('open'));
     td.append(d);
     return td;
   }
+  if (s.length <= 24) td.className = 'nowrap';
   td.textContent = s;
   return td;
+}
+
+// "5-12", "4 - 10", "8-3" or a single position: in the top 12 when every end is 12 or better.
+function inTopRange(v) {
+  const nums = String(v).match(/\d+/g);
+  if (!nums || nums.length > 2 || /^\s*>/.test(String(v))) return false;
+  return nums.every((n) => Number(n) >= 1 && Number(n) <= 12);
+}
+
+const LINK_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>';
+
+function linkIcon(s) {
+  const href = /^https?:\/\//i.test(s) ? s : `https://${s}`;
+  const short = s.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '') || s;
+  return h('a', { href, target: '_blank', rel: 'noopener noreferrer', class: 'link-icon', title: short, 'aria-label': `Open ${short}`, html: LINK_SVG });
 }
 
 function linkFor(s) {
   const href = /^https?:\/\//i.test(s) ? s : `https://${s}`;
   return h('a', { href, target: '_blank', rel: 'noopener noreferrer', class: 'cell-link' }, s.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/$/, '') || s);
+}
+
+// Columns each viewer has hidden, remembered per sheet in this browser.
+function hiddenCols(dataset) {
+  try { return new Set(JSON.parse(localStorage.getItem(`cols:${token}:${dataset.tab}:${dataset.name}`) || '[]')); } catch { return new Set(); }
+}
+function saveHiddenCols(dataset, set) {
+  try { localStorage.setItem(`cols:${token}:${dataset.tab}:${dataset.name}`, JSON.stringify([...set])); } catch { /* private mode */ }
+}
+
+function columnsButton(payload, A) {
+  const { dataset } = payload;
+  const hidden = hiddenCols(dataset);
+  const all = A.allVisible.filter((c) => c !== dataset.primary && c !== A.numIdx);
+  const btn = h('button', { class: 'btn', type: 'button', 'aria-haspopup': 'true' }, hidden.size ? `Columns (${hidden.size} hidden)` : 'Columns');
+  btn.addEventListener('click', () => {
+    closePopover();
+    const boxes = all.map((c) => {
+      const box = h('input', { type: 'checkbox', checked: !hidden.has(A.cols[c]) });
+      box.addEventListener('change', () => {
+        if (box.checked) hidden.delete(A.cols[c]); else hidden.add(A.cols[c]);
+        saveHiddenCols(dataset, hidden);
+        renderTabBody(true);
+      });
+      return h('label', { class: 'col-opt' }, box, A.cols[c]);
+    });
+    const form = h('div', { class: 'popover col-pop', role: 'dialog', 'aria-label': 'Choose columns' },
+      h('h3', null, 'Columns'),
+      h('div', { class: 'ctx' }, 'Hide columns you don’t need. This is remembered on this device.'),
+      h('div', { class: 'col-list' }, boxes),
+      h('div', { class: 'pop-actions' },
+        h('button', { type: 'button', class: 'btn ghost', onclick: () => { hidden.clear(); saveHiddenCols(dataset, hidden); closePopover(); renderTabBody(true); } }, 'Show all'),
+        h('button', { type: 'button', class: 'btn primary', onclick: closePopover }, 'Done')));
+    const wrapEl = h('div', null, h('div', { class: 'pop-backdrop', onclick: closePopover }), form);
+    wrapEl.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
+    document.body.append(wrapEl);
+    activePopover = wrapEl;
+    if (window.innerWidth > 640) {
+      const r = btn.getBoundingClientRect();
+      form.style.left = `${Math.max(12, Math.min(r.right - form.offsetWidth, window.innerWidth - form.offsetWidth - 12))}px`;
+      form.style.top = `${Math.min(r.bottom + 8, window.innerHeight - form.offsetHeight - 12)}px`;
+    }
+  });
+  return btn;
 }
 
 function renderTable(payload) {
@@ -421,7 +486,7 @@ function renderTable(payload) {
         h('span', { html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>' }).firstChild,
         search),
       seg),
-    h('div', { class: 'right' }, approveAllBtn)));
+    h('div', { class: 'right' }, columnsButton(payload, A), approveAllBtn)));
 
   const stickyPrimary = A.numIdx === 0 && dataset.primary === 1 ? 1 : dataset.primary === 0 ? 0 : -1;
   const thead = h('thead', null, h('tr', null,
@@ -452,11 +517,11 @@ function renderTable(payload) {
     const reviewBtn = h('button', { class: 'btn sm review-btn' }, '★ Review');
     reviewBtn.addEventListener('click', () => feedbackPopover(reviewBtn, item, dataset.id));
     tr.append(h('td', { class: 'fbcell sticky-r' },
-      h('div', { class: 'fb-summary' },
-        h('div', { class: 'fb-actions' }, statusChip(st), reactionsRow(st)),
-        h('div', { class: 'fb-actions' },
-          reviewBtn,
-          st.count || st.comments ? h('button', { class: 'btn ghost sm', onclick: () => openItemDrawer(item, dataset.id) }, `💬 ${(fb.get(item.item_key) || []).length}`) : null))));
+      h('div', { class: 'fb-actions' },
+        reviewBtn,
+        statusChip(st),
+        reactionsRow(st),
+        st.count || st.comments ? h('button', { class: 'btn ghost sm', title: 'Open comments', onclick: () => openItemDrawer(item, dataset.id) }, `💬 ${(fb.get(item.item_key) || []).length}`) : null)));
     tbody.append(tr);
   }
 
