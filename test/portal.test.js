@@ -140,3 +140,25 @@ test('admin upload → client review → agency reply', async (t) => {
   await call('PATCH', `/api/admin/projects/${project.id}`, { regenerate_token: true });
   assert.equal((await fetch(`${base}/api/c/${tok}`)).status, 404);
 });
+
+test('a bold lead-in at the end of an article does not swallow the next article', async () => {
+  const JSZip = require('jszip');
+  const { parseBlogDoc } = require('../lib/docx');
+  const para = (runs) => `<w:p>${runs.map(([text, bold]) => `<w:r>${bold ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${text}</w:t></w:r>`).join('')}</w:p>`;
+  const body = [
+    para([['Article 1: First article', true]]),
+    para([['Body of the first article.']]),
+    para([['Visit us at the clinic.', true], [' Book online for a quick reply.']]),
+    para([['Article 2: Second article', true]]),
+    para([['Body of the second article.']]),
+    para([['Article 3: Third article', true]]),
+    para([['Body of the third article.']]),
+  ].join('');
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`);
+  const doc = await parseBlogDoc(await zip.generateAsync({ type: 'nodebuffer' }), 'Blogs.docx');
+  assert.deepEqual(doc.articles.map((a) => a.title), ['First article', 'Second article', 'Third article']);
+  assert.match(doc.articles[0].html, /Visit us at the clinic/);
+});
