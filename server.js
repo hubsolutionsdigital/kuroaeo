@@ -192,17 +192,20 @@ function importSheet(projectId, sheet, { tab, name, period, phase, source }) {
   return datasetId;
 }
 
-function importBlogDoc(projectId, doc, { name, period, phase, source }) {
+// Word documents for review: blog articles or landing pages, one section per page.
+const DOC_TABS = ['blogs', 'landing'];
+
+function importBlogDoc(projectId, doc, { tab = 'blogs', name, period, phase, source }) {
   const datasetId = insertDataset(projectId, {
-    tab: 'blogs', name, period, phase, kind: 'doc', meta: { title: doc.title, introHtml: doc.introHtml }, source,
+    tab, name, period, phase, kind: 'doc', meta: { title: doc.title, introHtml: doc.introHtml }, source,
   });
   const stmt = insertItem();
   let pos = 0;
   for (const c of doc.checks) {
-    stmt.run(datasetId, projectId, 'blogs', 'check', `blogs:${c.key}`, c.text.slice(0, 300), pos++, JSON.stringify({ text: c.text }));
+    stmt.run(datasetId, projectId, tab, 'check', `${tab}:${c.key}`, c.text.slice(0, 300), pos++, JSON.stringify({ text: c.text }));
   }
   for (const a of doc.articles) {
-    stmt.run(datasetId, projectId, 'blogs', 'article', `blogs:${a.key}`, a.title.slice(0, 300), pos++,
+    stmt.run(datasetId, projectId, tab, 'article', `${tab}:${a.key}`, a.title.slice(0, 300), pos++,
       JSON.stringify({ number: a.number, title: a.title, seo: a.seo, html: a.html }));
   }
   return datasetId;
@@ -336,6 +339,7 @@ app.post('/api/admin/projects/:id/docx', requireAdmin, upload.single('file'), as
     throw new HttpError(400, 'That file could not be read as a Word document.');
   }
   const id = transaction(() => importBlogDoc(project.id, doc, {
+    tab: DOC_TABS.includes(req.body?.tab) ? req.body.tab : 'blogs',
     name: str(req.body?.name, 120) || doc.title,
     period: str(req.body?.period, 60) || defaultPeriod(),
     phase: phaseOf(req.body?.phase),
@@ -355,7 +359,7 @@ app.patch('/api/admin/datasets/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
   const tab = b.tab !== undefined ? b.tab : d.tab;
   if (!TABS.includes(tab)) throw new HttpError(400, 'Unknown tab.');
-  if (tab !== d.tab && d.kind === 'doc') throw new HttpError(400, 'Blog documents stay in the Blogs tab.');
+  if (tab !== d.tab && d.kind === 'doc' && !DOC_TABS.includes(tab)) throw new HttpError(400, 'Word documents can only move between Blogs and Landing Pages.');
   transaction(() => {
     db.prepare('UPDATE datasets SET name = ?, period = ?, phase = ?, tab = ? WHERE id = ?').run(
       b.name !== undefined ? (str(b.name, 120) || d.name) : d.name,
@@ -363,7 +367,9 @@ app.patch('/api/admin/datasets/:id', requireAdmin, (req, res) => {
       b.phase !== undefined ? phaseOf(b.phase) : d.phase,
       tab, d.id,
     );
-    if (tab !== d.tab) {
+    if (tab !== d.tab && d.kind === 'doc') {
+      db.prepare("UPDATE items SET tab = ?, item_key = ? || substr(item_key, instr(item_key, ':')) WHERE dataset_id = ?").run(tab, tab, d.id);
+    } else if (tab !== d.tab) {
       // Re-key rows for the new tab so feedback is tracked against the right section.
       const columns = parseJSON(d.columns, []);
       const pi = primaryColumn(columns, tab);

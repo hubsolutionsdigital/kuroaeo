@@ -71,9 +71,10 @@ const TAB_META = {
   backlinks: { label: 'Backlinks', noun: 'backlink', icon: '🔗', empty: 'Backlink opportunities for your review will appear here.' },
   prompts: { label: 'Prompts', noun: 'prompt', icon: '💬', empty: 'AI search prompts (AEO) we are tracking for you will appear here.' },
   blogs: { label: 'Blogs', noun: 'article', icon: '✍️', empty: 'Blog articles ready for your review will appear here.' },
+  landing: { label: 'Landing Pages', noun: 'landing page', icon: '🧭', empty: 'Landing pages ready for your review will appear here.' },
 };
 // Also the order of the client's review steps.
-const TAB_ORDER = ['keywords', 'onpage', 'prompts', 'backlinks', 'blogs'];
+const TAB_ORDER = ['keywords', 'onpage', 'prompts', 'backlinks', 'blogs', 'landing'];
 
 const FB_TYPES = {
   love: { emoji: '❤️', label: 'Love it', pos: true },

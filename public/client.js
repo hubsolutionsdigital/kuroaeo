@@ -170,7 +170,7 @@ function stepInfo(t) {
 
 // Blogs often have their own approver, so they are never locked and never
 // hold up the other steps.
-const INDEPENDENT_STEPS = new Set(['blogs']);
+const INDEPENDENT_STEPS = new Set(['blogs', 'landing']);
 // Shown on steps that have nothing uploaded yet.
 const COMING = { prompts: 'Coming in Month 2', backlinks: 'Coming in Month 2' };
 
@@ -962,6 +962,8 @@ function summaryFor(payload, A, fb) {
     const kinds = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k.toLowerCase());
     out.push(`We have found ${n} websites where we plan to list or mention your business${kinds.length ? `, mostly ${joinAnd(kinds)}` : ''}.`);
     out.push('Links from trusted, relevant sites help Google and AI assistants trust your website. Let us know if there are any sites you would rather not appear on.');
+  } else if (dataset.tab === 'landing') {
+    out.push(`This is our plan of ${n} landing pages. Each one is built to turn visitors searching for a specific service into enquiries.`);
   } else if (dataset.tab === 'blogs') {
     const status = find(/status/i);
     const counts = {};
@@ -1208,14 +1210,15 @@ function renderDoc(payload) {
         h('button', { class: 'btn primary', onclick: () => go(articles[0].item_key) }, `Start reading: ${articles[0].data.title} →`)));
     }
     const all = [...checks, ...articles].flatMap((c) => threadsOf(fb.get(c.item_key) || [])).reverse().map((t) => ({ t }));
-    feedbackLog(side, 'Feedback log: all articles', all, { key: `doc:${dataset.id}`, showItem: true });
+    feedbackLog(side, `Feedback log: all ${TAB_META[dataset.tab].noun}s`, all, { key: `doc:${dataset.id}`, showItem: true });
   } else {
     const a = articles.find((x) => x.item_key === section);
     const st = itemStatus(fb.get(a.item_key));
-    const approveBtn = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : '✓ Approve article');
-    approveBtn.addEventListener('click', () => feedbackPopover(approveBtn, a, dataset.id, { title: 'Approve this article?', preselect: 'approve' }));
+    const noun = TAB_META[dataset.tab].noun;
+    const approveBtn = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : `✓ Approve ${noun}`);
+    approveBtn.addEventListener('click', () => feedbackPopover(approveBtn, a, dataset.id, { title: `Approve this ${noun}?`, preselect: 'approve' }));
     const fbBtn = h('button', { class: 'btn' }, '★ Overall feedback');
-    fbBtn.addEventListener('click', () => feedbackPopover(fbBtn, a, dataset.id, { title: 'What do you think of this article?' }));
+    fbBtn.addEventListener('click', () => feedbackPopover(fbBtn, a, dataset.id, { title: `What do you think of this ${noun}?` }));
     const bar = () => h('div', { class: 'approve-bar' },
       h('div', { class: 'row-flex' }, statusChip(st), reactionsRow(st),
         st.lastApproval ? h('span', { class: 'muted small' }, `by ${st.lastApproval.name}, ${timeAgo(st.lastApproval.created_at)}`) : null),
@@ -1238,8 +1241,8 @@ function renderDoc(payload) {
     main.append(h('div', { class: 'between', style: { marginTop: '28px', paddingTop: '18px', borderTop: '1px solid var(--line)' } },
       idx > 0 ? h('button', { class: 'btn', onclick: () => go(articles[idx - 1].item_key) }, '← Previous') : (hasOverview ? h('button', { class: 'btn', onclick: () => go('overview') }, '← Overview') : h('span')),
       h('div', { class: 'row-flex' },
-        (() => { const b = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : '✓ Approve article'); b.addEventListener('click', () => feedbackPopover(b, a, dataset.id, { title: 'Approve this article?', preselect: 'approve' })); return b; })(),
-        idx < articles.length - 1 ? h('button', { class: 'btn primary', onclick: () => go(articles[idx + 1].item_key) }, 'Next article →') : null)));
+        (() => { const b = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : `✓ Approve ${noun}`); b.addEventListener('click', () => feedbackPopover(b, a, dataset.id, { title: `Approve this ${noun}?`, preselect: 'approve' })); return b; })(),
+        idx < articles.length - 1 ? h('button', { class: 'btn primary', onclick: () => go(articles[idx + 1].item_key) }, `Next ${noun} →`) : null)));
 
     const threads = threadsOf(fb.get(a.item_key) || []);
     // Order the log by where each comment sits in the article.
@@ -1256,7 +1259,7 @@ function renderDoc(payload) {
         order.push({ t, pos: marks[0] ? marks[0].getBoundingClientRect().top + window.scrollY : (t.root.quote ? 1e9 : -1) });
       }
       order.sort((x, y) => x.pos - y.pos);
-      feedbackLog(side, 'Feedback log', order, { key: a.item_key, empty: 'No feedback yet. Point at any part of the article and press 💬.' });
+      feedbackLog(side, 'Feedback log', order, { key: a.item_key, empty: `No feedback yet. Point at any part of the ${noun} and press 💬.` });
     });
     setupSelection(selectable, a, dataset.id);
     setupBlocks(selectable, prose, a, dataset.id);
@@ -1300,7 +1303,7 @@ const TOUR_STEPS = [
       'Your project is reviewed one step at a time. When a step is done, the next one opens.',
       '1 Keywords: the searches we will rank you for, with monthly rankings.',
       '2 On-Page SEO · 3 Prompts · 4 Backlinks follow as the work progresses. Prompts and Backlinks start in Month 2.',
-      '5 Blogs can be reviewed at any time, so a colleague who approves content can go straight there.',
+      '5 Blogs and 6 Landing Pages can be reviewed at any time, so a colleague who approves content can go straight there.',
     ],
   },
   {
@@ -1349,12 +1352,12 @@ const TOUR_STEPS = [
   },
   {
     target: '.tab[data-tab="blogs"]',
-    title: 'Reviewing blog articles',
+    title: 'Reviewing blogs and landing pages',
     body: [
-      'Open an article and read it as it will appear on your site.',
+      'Open an article or landing page and read it as it will appear on your site.',
       'Point at any paragraph, heading or image and press 💬 to say what you love or want changed. You can also highlight exact words.',
       'Every comment is kept in the Feedback log beside the article, with the section it is about and our replies.',
-      'Confirm the review points in the Overview, then press ✓ Approve article when you are happy.',
+      'Confirm the review points in the Overview, then press ✓ Approve when you are happy.',
     ],
   },
   {
@@ -1365,6 +1368,7 @@ const TOUR_STEPS = [
       ['Backlinks', 'Are you happy to be listed on these sites?'],
       ['Prompts', 'Are these the questions your customers really ask?'],
       ['Blogs', 'Check facts, prices, offers, team names and credentials. We cannot verify these for you.'],
+      ['Landing Pages', 'Check the offer, prices, calls to action and contact details on each page.'],
     ],
     body: ['When everything in a section looks right, approve it. Questions are welcome, and we reply right here.'],
   },
