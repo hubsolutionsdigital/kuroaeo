@@ -107,6 +107,24 @@ function listFeedback(projectId) {
   return db.prepare('SELECT * FROM feedback WHERE project_id = ? ORDER BY created_at, id').all(projectId);
 }
 
+// What is inside each sheet or document (newest version), for the client's
+// home page: the keyword, page or article names, without the full data.
+function reviewContents(projectId) {
+  const latest = db.prepare(`
+    SELECT d.id, d.tab, d.name, d.period, d.phase, d.kind FROM datasets d
+    WHERE d.id IN (SELECT MAX(id) FROM datasets WHERE project_id = ? GROUP BY tab, name) ORDER BY d.id
+  `).all(projectId);
+  const items = db.prepare('SELECT kind, item_key, label FROM items WHERE dataset_id = ? ORDER BY position');
+  return latest.map((d) => {
+    const all = items.all(d.id);
+    return {
+      ...d,
+      checks: all.filter((i) => i.kind === 'check').length,
+      items: all.filter((i) => i.kind !== 'check').map((i) => ({ key: i.item_key, label: i.label })),
+    };
+  });
+}
+
 // Review progress per tab, counted over the newest version of each sheet/doc.
 function tabProgress(projectId) {
   const latest = db.prepare(`
@@ -571,6 +589,7 @@ app.get('/api/c/:token', (req, res) => {
     datasets: listDatasets(p.id).map(({ source_file, ...d }) => d),
     feedback: listFeedback(p.id),
     progress: tabProgress(p.id),
+    contents: reviewContents(p.id),
   });
 });
 

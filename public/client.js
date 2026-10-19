@@ -55,6 +55,7 @@ async function refreshFeedback() {
   const d = await api('GET', `/api/c/${encodeURIComponent(token)}/feedback`);
   S.feedback = d.feedback;
   S.progress = d.progress;
+  if (S.view === 'home') { renderHome(document.getElementById('homebody')); return; }
   renderTabs();
   await renderTabBody(true);
 }
@@ -135,12 +136,14 @@ function render() {
         h('button', { class: 'btn', id: 'tour-btn', onclick: () => startTour() }, '❔ How to use'),
         h('button', { class: 'btn', id: 'all-feedback-btn', onclick: openActivity }, '🗂️ All feedback'))),
     h('div', { class: 'view-switch', role: 'tablist', 'aria-label': 'View' },
+      h('button', { role: 'tab', 'data-view': 'home', onclick: () => setView('home') }, '🏠 Home'),
       h('button', { role: 'tab', 'data-view': 'review', onclick: () => setView('review') }, '✅ Review'),
       h('button', { role: 'tab', 'data-view': 'performance', onclick: () => setView('performance') }, '📈 Performance')),
     h('nav', { class: 'tabs', id: 'tabs', role: 'tablist' }),
+    h('section', { id: 'homebody', hidden: true }),
     h('section', { id: 'tabbody' }),
     h('section', { id: 'perfbody', hidden: true }));
-  setView(S.view || 'review', true);
+  setView(S.view || 'home', true);
 }
 
 function setView(view, initial) {
@@ -150,12 +153,112 @@ function setView(view, initial) {
     b.setAttribute('aria-selected', String(b.dataset.view === view));
   });
   const perf = view === 'performance';
-  document.getElementById('tabs').hidden = perf;
-  document.getElementById('tabbody').hidden = perf;
+  const home = view === 'home';
+  document.getElementById('tabs').hidden = perf || home;
+  document.getElementById('tabbody').hidden = perf || home;
   document.getElementById('perfbody').hidden = !perf;
-  if (!initial) history.replaceState(null, '', `#${perf ? 'performance' : S.tab}`);
+  document.getElementById('homebody').hidden = !home;
+  if (!initial) history.replaceState(null, '', home ? location.pathname : `#${perf ? 'performance' : S.tab}`);
   if (perf) renderPerformance(document.getElementById('perfbody'));
+  else if (home) renderHome(document.getElementById('homebody'));
   else { renderTabs(); renderTabBody(); }
+}
+
+/* ---------- home: what there is to review, and what is inside ---------- */
+
+const STEP_ABOUT = {
+  keywords: 'The Google searches we will rank you for, with projected and actual monthly rankings. Approve the list, or tell us which keywords to change.',
+  onpage: 'Recommended page titles, meta descriptions and on-page changes for your website.',
+  prompts: 'The questions people ask AI assistants such as ChatGPT and Gemini that we want your business to appear in.',
+  backlinks: 'Websites we plan to get links to your site from, which builds Google’s trust in your website.',
+  blogs: 'Articles written for your website. Read each one, comment on any paragraph, then approve it.',
+  landing: 'Pages written to turn visitors into enquiries. Read each one, comment on any part, then approve it.',
+};
+
+function openItem(tab, content, key) {
+  S.tabPhase[tab] = content.phase || 'all';
+  S.sel[tab] = { name: content.name, id: content.id };
+  if (key && content.kind === 'doc') S.docSection[content.id] = key;
+  S.view = 'review';
+  S.tab = tab;
+  S.filter = { q: '', status: 'all' };
+  setView('review');
+  window.scrollTo({ top: 0 });
+}
+
+function renderHome(root) {
+  const fb = fbByKey();
+  const list = steps();
+  const contents = S.contents || [];
+  const statusOf = (key) => itemStatus(fb.get(key)).key;
+  const totals = list.filter((x) => x.has).reduce((a, x) => ({ items: a.items + x.items, reviewed: a.reviewed + x.reviewed }), { items: 0, reviewed: 0 });
+  const next = list.find((x) => x.has && !x.complete && !x.locked);
+  const name = getName();
+  const pct = totals.items ? Math.round((totals.reviewed / totals.items) * 100) : 0;
+
+  const welcome = h('div', { class: 'card card-pad home-welcome' },
+    h('div', null,
+      h('h2', null, `${name ? `Hi ${name.split(' ')[0]}, here` : 'Here'} is what is ready for your review`),
+      h('p', { class: 'muted' }, totals.items
+        ? `${totals.items} items across ${list.filter((x) => x.has).length} sections. You have reviewed ${totals.reviewed} so far. Work through the sections in order, or jump to any blog or landing page below.`
+        : `${S.agency} will add your keywords and content here soon.`),
+      totals.items ? h('div', { class: 'home-progress' },
+        h('div', { class: 'meter', role: 'img', 'aria-label': `${pct}% reviewed` }, h('div', { style: { width: `${pct}%` } })),
+        h('span', { class: 'small muted' }, `${pct}% reviewed`)) : null),
+    next ? h('button', { class: 'btn primary', onclick: () => goStep(next.t) }, `${next.reviewed ? 'Continue' : 'Start'} with ${TAB_META[next.t].label} →`)
+      : totals.items ? h('span', { class: 'chip', style: { background: 'var(--ok)', color: 'var(--ok-ink)' } }, '✓ All reviewed, thank you') : null);
+
+  const card = (st, i) => {
+    const meta = TAB_META[st.t];
+    const here = contents.filter((c) => c.tab === st.t);
+    const items = here.flatMap((c) => c.items.map((it) => ({ ...it, content: c })));
+    const checks = here.reduce((n, c) => n + c.checks, 0);
+    const state = st.complete ? h('span', { class: 'chip home-done' }, '✓ Done')
+      : st.locked ? h('span', { class: 'chip' }, '🔒 Opens after the previous step')
+        : h('span', { class: 'chip home-todo' }, `${st.reviewed} of ${st.items} reviewed`);
+    const what = `${items.length} ${items.length === 1 ? meta.noun : `${meta.noun}s`}${checks ? ` and ${checks} points to confirm` : ''}${here.length > 1 ? `, in ${here.length} ${here.some((c) => c.kind === 'doc') ? 'documents' : 'sheets'}` : ''}`;
+
+    let inside;
+    if (here.some((c) => c.kind === 'doc')) {
+      // Articles and pages: every title, each opens straight away.
+      inside = h('ol', { class: 'home-list' }, items.map((it) => {
+        const k = statusOf(it.key);
+        return h('li', null,
+          h('button', { class: 'linklike', onclick: () => openItem(st.t, it.content, it.key) }, h('span', { class: `home-dot ${k}`, 'aria-hidden': 'true' }), h('span', null, it.label)),
+          k === 'approved' ? h('span', { class: 'home-st ok' }, '✓ Approved') : k === 'changes' ? h('span', { class: 'home-st' }, '✏️ Changes') : k === 'question' ? h('span', { class: 'home-st' }, '❓ Question') : null);
+      }));
+    } else {
+      // Sheets: which sheets and phases, and the first few names.
+      inside = h('div', null,
+        here.length > 1 ? h('div', { class: 'small muted', style: { marginBottom: '8px' } }, here.map((c) => `${c.name}${c.phase ? ` (Phase ${c.phase})` : ''}: ${c.items.length}`).join(' · ')) : null,
+        h('div', { class: 'home-chips' }, items.slice(0, 12).map((it) => h('span', { class: 'chip' }, it.label)),
+          items.length > 12 ? h('span', { class: 'small muted' }, `+${items.length - 12} more`) : null));
+    }
+    return h('div', { class: 'card card-pad home-card' },
+      h('div', { class: 'home-head' },
+        h('div', { class: 'home-title' }, h('span', { class: `step-num${st.complete ? ' done' : ''}`, 'aria-hidden': 'true' }, st.complete ? '✓' : String(i + 1)),
+          h('div', null, h('strong', null, `${meta.icon} ${meta.label}`), h('div', { class: 'muted small' }, STEP_ABOUT[st.t]))),
+        h('div', { class: 'home-actions' }, state,
+          h('button', { class: `btn${next && next.t === st.t ? ' primary' : ''}`, onclick: () => goStep(st.t) },
+            st.complete ? 'View again' : st.locked ? 'Have a look' : st.reviewed ? 'Continue →' : 'Start reviewing →'))),
+      h('div', { class: 'home-label' }, `What’s inside: ${what}`),
+      inside);
+  };
+  const ready = list.map((st, i) => (st.has ? card(st, i) : null)).filter(Boolean);
+  const soon = list.map((st, i) => ({ st, i })).filter(({ st }) => !st.has);
+
+  const later = h('div', { class: 'home-later' },
+    soon.length ? h('div', { class: 'card card-pad' },
+      h('div', { class: 'home-label' }, 'Coming next'),
+      h('div', { class: 'home-soon' }, soon.map(({ st, i }) => h('div', { class: 'home-soon-item', title: STEP_ABOUT[st.t] },
+        h('span', { class: 'step-num', 'aria-hidden': 'true' }, String(i + 1)),
+        h('div', null, h('strong', null, `${TAB_META[st.t].icon} ${TAB_META[st.t].label}`), h('div', { class: 'small muted' }, COMING[st.t] || 'Coming soon')))))) : null,
+    h('div', { class: 'card card-pad home-perf' },
+      h('div', null, h('strong', null, '📈 Performance'),
+        h('div', { class: 'muted small' }, 'How your Google rankings, website visits and enquiries are growing.')),
+      h('button', { class: 'btn', onclick: () => setView('performance') }, 'View performance →')));
+
+  root.replaceChildren(welcome, ...ready, later);
 }
 
 /* ---------- review steps ---------- */
@@ -1410,6 +1513,7 @@ async function startTour(i = 0) {
   document.removeEventListener('keydown', tourKeys);
   document.addEventListener('keydown', tourKeys);
   const step = TOUR_STEPS[i];
+  if (step.target && S.view === 'home' && !step.target.startsWith('.view-switch')) setView('review');
   if (step.tab && S.tab !== step.tab && S.datasets.some((d) => d.tab === step.tab)) {
     S.tab = step.tab;
     history.replaceState(null, '', `#${step.tab}`);
@@ -1469,7 +1573,7 @@ async function startTour(i = 0) {
   }
   const hash = location.hash.slice(1);
   S.tab = TAB_ORDER.includes(hash) ? hash : currentStep();
-  S.view = hash === 'performance' ? 'performance' : 'review';
+  S.view = hash === 'performance' ? 'performance' : TAB_ORDER.includes(hash) ? 'review' : 'home';
   render();
   let seen = false;
   try { seen = localStorage.getItem(`tour:${token}`) === '1'; } catch { /* ignore */ }

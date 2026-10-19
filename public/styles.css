@@ -475,3 +475,38 @@ svg.viz .viz-hit:hover { fill: rgba(23, 33, 58, .04); }
 .switch input:checked + .switch-ui { background: var(--brand-2); }
 .switch input:checked + .switch-ui::after { transform: translateX(18px); }
 .switch input:focus-visible + .switch-ui { outline: 2px solid var(--brand-2); outline-offset: 2px; }
+
+/* Client home: what is ready for review and what is inside */
+.home-welcome { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-bottom: 14px; }
+.home-welcome h2 { margin: 0 0 6px; font-size: 22px; }
+.home-welcome p { margin: 0 0 10px; max-width: 640px; }
+.home-progress { display: flex; align-items: center; gap: 10px; max-width: 420px; }
+.home-progress .meter { flex: 1; }
+.home-card { margin-bottom: 14px; }
+.home-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.home-title { display: flex; align-items: flex-start; gap: 12px; font-size: 16px; max-width: 640px; }
+.home-title .muted { font-size: 13.5px; margin-top: 2px; }
+.home-card .step-num, .home-soon .step-num { width: 28px; height: 28px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--brand); color: #fff; font-size: 13px; font-weight: 700; flex: none; }
+.home-card .step-num.done { background: #1f7a55; }
+.home-soon .step-num { background: #dfe5ee; color: var(--muted); width: 24px; height: 24px; font-size: 12px; }
+.home-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.home-done { background: var(--ok); color: var(--ok-ink); }
+.home-todo { background: var(--blue); color: var(--blue-ink); }
+.home-label { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 8px; }
+.home-list { margin: 0; padding: 0 0 0 22px; columns: 2 320px; column-gap: 28px; }
+.home-list li { font-size: 14px; line-height: 1.4; padding: 5px 0; break-inside: avoid; color: var(--muted); }
+.home-list .linklike { background: none; border: none; padding: 0; text-align: left; font: inherit; color: var(--ink); cursor: pointer; display: inline-flex; gap: 8px; align-items: baseline; }
+.home-list .linklike:hover { color: var(--brand); text-decoration: underline; }
+.home-st { font-size: 12.5px; margin-left: 8px; white-space: nowrap; color: var(--amber-ink); }
+.home-st.ok { color: var(--ok-ink); }
+.home-dot { width: 8px; height: 8px; border-radius: 50%; background: #c7cfdc; flex: none; transform: translateY(-1px); }
+.home-dot.approved { background: #1f7a55; }
+.home-dot.changes, .home-dot.question { background: #c98a00; }
+.home-dot.liked { background: #2a78d6; }
+.home-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.home-chips .chip { font-weight: 500; }
+.home-later { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; align-items: stretch; }
+.home-soon { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.home-soon-item { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.home-perf { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
+@media (max-width: 760px) { .home-later { grid-template-columns: 1fr; } .home-head .home-actions { width: 100%; } }
