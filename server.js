@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const { db, transaction } = require('./lib/db');
 const { parseWorkbook, primaryColumn, normalizeKey, TABS } = require('./lib/excel');
-const { parseBlogDoc, sanitizeEdit, stripTags } = require('./lib/docx');
+const { parseBlogDoc, sanitizeEdit, sanitizeIntro, stripTags } = require('./lib/docx');
 const analytics = require('./lib/analytics');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -430,6 +430,12 @@ app.patch('/api/admin/datasets/:id', requireAdmin, (req, res) => {
       b.phase !== undefined ? phaseOf(b.phase) : d.phase,
       tab, d.id,
     );
+    // The team can edit a document's overview text (e.g. remove a question).
+    if (d.kind === 'doc' && typeof b.introHtml === 'string') {
+      const meta = parseJSON(d.meta, {});
+      meta.introHtml = sanitizeIntro(b.introHtml.slice(0, 500000));
+      db.prepare('UPDATE datasets SET meta = ? WHERE id = ?').run(JSON.stringify(meta), d.id);
+    }
     if (tab !== d.tab && d.kind === 'doc') {
       db.prepare("UPDATE items SET tab = ?, item_key = ? || substr(item_key, instr(item_key, ':')) WHERE dataset_id = ?").run(tab, tab, d.id);
     } else if (tab !== d.tab) {

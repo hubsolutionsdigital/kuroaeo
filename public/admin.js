@@ -182,6 +182,7 @@ function datasetRow(d, p) {
     h('td', { class: 'nowrap', style: { textAlign: 'right' } },
       h('a', { class: 'btn sm ghost', href: `${clientUrl(p)}#${d.tab}`, target: '_blank', rel: 'noopener' }, 'View'),
       h('button', { class: 'btn sm ghost', onclick: edit }, 'Edit'),
+      d.kind === 'doc' ? h('button', { class: 'btn sm ghost', onclick: () => editOverview(d, p) }, 'Edit overview') : null,
       h('button', {
         class: 'btn sm ghost danger',
         onclick: async () => {
@@ -215,6 +216,32 @@ function datasetRow(d, p) {
   };
   show();
   return tr;
+}
+
+// Edit the overview text of a blog or landing page document in place, e.g. to
+// remove a question that no longer applies. The review points stay as they are.
+async function editOverview(d, p) {
+  let payload;
+  try { payload = await api('GET', `/api/admin/projects/${p.id}/datasets/${d.id}`); } catch (err) { toast(err.message, true); return; }
+  const SLOT = '<div data-checklist="" contenteditable="false" class="ck-slot">☐ The review points go here (clients confirm them one by one)</div>';
+  const editor = h('div', { class: 'prose overview-editor', contenteditable: 'true', spellcheck: 'true',
+    html: (payload.dataset.meta.introHtml || '').replace(/<div data-checklist(="")?><\/div>/g, SLOT) });
+  editor.addEventListener('paste', (e) => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); });
+  const save = h('button', { class: 'btn primary' }, 'Save overview');
+  save.addEventListener('click', async () => {
+    const copy = editor.cloneNode(true);
+    copy.querySelectorAll('.ck-slot').forEach((el) => { const slot = document.createElement('div'); slot.setAttribute('data-checklist', ''); el.replaceWith(slot); });
+    save.disabled = true;
+    try {
+      await api('PATCH', `/api/admin/datasets/${d.id}`, { introHtml: copy.innerHTML });
+      toast('Overview saved. The client sees the change straight away.');
+      closeDrawer();
+    } catch (err) { toast(err.message, true); save.disabled = false; }
+  });
+  openDrawer('Edit overview', `${d.name}: click into the text to change or delete it, like in Word.`,
+    [h('div', { class: 'muted small', style: { marginBottom: '10px' } }, 'To remove a line, select it and press Delete. Your edits here are not highlighted to the client.'), editor],
+    [h('button', { class: 'btn ghost', onclick: closeDrawer }, 'Cancel'), save]);
+  editor.focus();
 }
 
 /* ---------- upload ---------- */

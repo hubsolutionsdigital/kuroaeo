@@ -531,3 +531,6 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .gsheet { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fbfcfe; }
 .gsheet-head { margin-bottom: 8px; font-size: 14px; }
 .gsheet .select { max-width: 420px; flex: 1; min-width: 200px; }
+.overview-editor { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; outline: none; min-height: 200px; }
+.overview-editor:focus { box-shadow: 0 0 0 3px #e3ecfa; border-color: var(--mint-line); }
+.ck-slot { background: var(--blue); color: var(--blue-ink); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 10px 0; user-select: none; }
