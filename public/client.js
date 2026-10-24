@@ -1336,7 +1336,8 @@ function renderDoc(payload) {
     main.append(h('div', { class: 'approve-bar' },
       h('div', { class: 'row-flex' }, statusChip(st), editCount,
         st.lastApproval ? h('span', { class: 'muted small' }, `by ${st.lastApproval.name}, ${timeAgo(st.lastApproval.created_at)}`) : null),
-      h('div', { class: 'row-flex' }, fbBtn, approve())));
+      h('div', { class: 'row-flex' },
+        h('button', { class: 'btn ghost', onclick: () => openEditGuide(noun) }, '❔ How to edit'), fbBtn, approve())));
     main.append(h('div', { class: 'select-hint', style: { marginBottom: '16px' } },
       '✏️ Click any text to edit it, just like in Word. Your changes save automatically and are highlighted, so our team can see exactly what you changed.'));
 
@@ -1351,6 +1352,10 @@ function renderDoc(payload) {
     const comments = h('div', { style: { marginTop: '22px' } });
     side.append(changes, comments);
     makeEditable(prose, payload, a, { changes, editCount });
+    // First article this reviewer opens: show how editing works.
+    let guided = false;
+    try { guided = localStorage.getItem(`editguide:${token}`) === '1'; } catch { /* ignore */ }
+    if (!guided && !tourEl) setTimeout(() => openEditGuide(noun), 400);
 
     const idx = articles.indexOf(a);
     main.append(h('div', { class: 'between', style: { marginTop: '28px', paddingTop: '18px', borderTop: '1px solid var(--line)' } },
@@ -1363,6 +1368,29 @@ function renderDoc(payload) {
   }
 
   return h('div', { class: 'doc-layout' }, nav, main, side);
+}
+
+/* ---------- how to edit a blog or landing page ---------- */
+
+function openEditGuide(noun = 'article') {
+  try { localStorage.setItem(`editguide:${token}`, '1'); } catch { /* ignore */ }
+  const step = (n, title, ...body) => h('li', { class: 'eg-step' },
+    h('span', { class: 'eg-num', 'aria-hidden': 'true' }, String(n)),
+    h('div', null, h('strong', null, title), h('div', { class: 'muted small' }, ...body)));
+  const example = h('div', { class: 'eg-example', 'aria-label': 'Example of a change' },
+    h('div', { class: 'eg-label' }, 'What your changes look like'),
+    h('p', null, 'We offer ', h('del', { class: 'ed-del' }, 'free'), ' ', h('ins', { class: 'ed-ins' }, 'affordable'), ' hearing tests ', h('ins', { class: 'ed-ins' }, 'at City Hall'), ' in Singapore.'),
+    h('div', { class: 'muted small' }, h('ins', { class: 'ed-ins' }, 'Green'), ' = words you added. ', h('del', { class: 'ed-del' }, 'Red'), ' = words you removed. Our team sees exactly the same.'));
+  openDrawer(`How to edit this ${noun}`, 'It works like a Word document, with track changes switched on.', [
+    h('ol', { class: 'eg-steps' },
+      step(1, 'Click any text to edit it', `Headings, paragraphs, bullet points and table cells can all be changed. Just click and type, or select words and type over them.`),
+      step(2, 'Your changes save by themselves', 'There is no save button. Changes are kept a moment after you stop typing, and when you click somewhere else. Your name is added to each change.'),
+      step(3, 'See and undo your changes', 'Everything you change is highlighted in the article and listed under “Your changes” on the right. Press Show to find a change, or Undo to put the original words back.'),
+      step(4, 'Ask us instead, if you prefer', 'For bigger changes (a new section, different images, a change of angle), press 💬 Comment or question and tell us what you would like. We will make the change for you.'),
+      step(5, `Approve the ${noun}`, `When you are happy, press ✓ Approve ${noun}. You can approve with your edits; we will update the ${noun} with your wording before it goes live.`)),
+    example,
+    h('div', { class: 'muted small', style: { marginTop: '12px' } }, 'Tips: pasted text comes in as plain words. Press Esc to stop editing. To open a link while editing, hold Ctrl (or ⌘ on a Mac) and click it.'),
+  ], [h('button', { class: 'btn primary', onclick: closeDrawer }, 'Got it, start editing')]);
 }
 
 /* ---------- direct editing of blog and landing page text ---------- */
@@ -1575,6 +1603,7 @@ const TOUR_STEPS = [
       'Click any text and edit it directly, just like in Word. Changes save automatically.',
       'Your changes are highlighted, and listed under “Your changes” beside the article, where you can undo any of them.',
       'Use 💬 Comment or question for anything you would rather we changed for you.',
+      'Press ❔ How to edit beside any article for a short guide.',
       'Confirm the review points in the Overview, then press ✓ Approve when you are happy.',
     ],
   },

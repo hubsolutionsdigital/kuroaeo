@@ -534,3 +534,13 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .overview-editor { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; outline: none; min-height: 200px; }
 .overview-editor:focus { box-shadow: 0 0 0 3px #e3ecfa; border-color: var(--mint-line); }
 .ck-slot { background: var(--blue); color: var(--blue-ink); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 10px 0; user-select: none; }
+
+/* How to edit a blog or landing page */
+.eg-steps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 14px; }
+.eg-step { display: flex; gap: 12px; align-items: flex-start; }
+.eg-step strong { display: block; margin-bottom: 2px; font-size: 14.5px; }
+.eg-step .muted { line-height: 1.5; }
+.eg-num { width: 26px; height: 26px; border-radius: 50%; background: var(--brand); color: #fff; display: inline-grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
+.eg-example { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fbfcfe; }
+.eg-example p { margin: 6px 0 8px; font-size: 15px; line-height: 1.6; }
+.eg-label { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
