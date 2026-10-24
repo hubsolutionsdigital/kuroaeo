@@ -524,3 +524,10 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .edit-diff { border: 1px solid var(--line); border-left: 3px solid #2f9e62; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; background: #fbfdfc; }
 .edit-diff .prose > :first-child { margin-top: 0; }
 .edit-diff .prose > :last-child { margin-bottom: 0; }
+
+/* Pick a Google Sheet instead of uploading an .xlsx */
+.or-line { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 14px 0; }
+.or-line::before, .or-line::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.gsheet { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fbfcfe; }
+.gsheet-head { margin-bottom: 8px; font-size: 14px; }
+.gsheet .select { max-width: 420px; flex: 1; min-width: 200px; }

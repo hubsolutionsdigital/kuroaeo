@@ -236,6 +236,59 @@ function dropzone(accept, label, hint, onFile) {
   return zone;
 }
 
+/* ---------- pick a Google Sheet instead of uploading an .xlsx ---------- */
+
+// purpose: 'upload' (sheets for the review tabs) or 'metrics' (monthly numbers).
+function googleSheetPicker(p, purpose, onPick) {
+  const box = h('div', { class: 'gsheet' }, h('div', { class: 'muted small' }, 'Checking Google…'));
+  const back = purpose === 'upload' ? 'upload' : 'performance';
+  Promise.all([api('GET', '/api/admin/google/status'), api('GET', `/api/admin/projects/${p.id}/gsheet`)]).then(([g, saved]) => {
+    const head = h('div', { class: 'gsheet-head' }, h('strong', null, '🟩 From Google Sheets'));
+    if (g.mode !== 'oauth') {
+      box.replaceChildren(head, h('div', { class: 'muted small' }, g.oauthConfigured
+        ? h('span', null, 'Connect your Google account to pick a spreadsheet instead of downloading it. ', h('a', { href: `/api/admin/google/connect?project=${p.id}&back=${back}` }, 'Connect Google account'))
+        : h('span', null, 'Set up “Connect Google account” on the Performance tab to pick spreadsheets from Google Sheets.')));
+      return;
+    }
+    if (!g.sheets) {
+      box.replaceChildren(head, h('div', { class: 'small row-flex' },
+        h('span', { class: 'muted' }, `Connected as ${g.email}, but without access to Google Sheets.`),
+        h('a', { class: 'btn sm', href: `/api/admin/google/connect?project=${p.id}&back=${back}` }, 'Reconnect Google'),
+        h('span', { class: 'muted' }, 'and tick the Google Drive box.')));
+      return;
+    }
+    const last = (saved.sheets || {})[purpose];
+    const search = h('input', { class: 'input', placeholder: 'Search your spreadsheets…', style: { maxWidth: '260px' } });
+    const select = h('select', { class: 'select', 'aria-label': 'Spreadsheet' }, h('option', { value: '' }, 'Loading your spreadsheets…'));
+    const go = h('button', { class: 'btn primary' }, purpose === 'upload' ? 'Read this sheet' : 'Import numbers');
+    const load = async (q) => {
+      try {
+        const { files } = await api('GET', `/api/admin/google/sheets?q=${encodeURIComponent(q || '')}`);
+        const opts = files.map((f) => h('option', { value: f.id, selected: last && last.id === f.id },
+          `${f.name}${f.isGoogleSheet ? '' : ' (.xlsx)'} · edited ${new Date(f.modifiedTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`));
+        if (last && !files.some((f) => f.id === last.id) && !q) opts.unshift(h('option', { value: last.id, selected: true }, `${last.name} (last used)`));
+        select.replaceChildren(...(opts.length ? opts : [h('option', { value: '' }, q ? 'No spreadsheets match' : 'No spreadsheets found')]));
+      } catch (err) { select.replaceChildren(h('option', { value: '' }, err.message)); }
+    };
+    let t = null;
+    search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => load(search.value.trim()), 300); });
+    const run = async (id) => {
+      if (!id) { toast('Choose a spreadsheet.', true); return; }
+      go.disabled = true;
+      try { await onPick(id); } catch (err) { toast(err.message, true); } finally { go.disabled = false; }
+    };
+    go.addEventListener('click', () => run(select.value));
+    box.replaceChildren(head,
+      last ? h('div', { class: 'small row-flex', style: { marginBottom: '8px' } },
+        h('span', { class: 'muted' }, 'Last used: ', h('strong', null, last.name)),
+        h('button', { class: 'btn sm', onclick: (e) => { e.currentTarget.disabled = true; run(last.id); } }, '↻ Get the latest')) : null,
+      h('div', { class: 'row-flex' }, search, select, go),
+      h('div', { class: 'muted small', style: { marginTop: '6px' } }, `Reads the sheet as it is right now from ${g.email}’s Google Drive. Nothing is changed in Google Sheets.`));
+    load('');
+  }, (err) => box.replaceChildren(h('div', { class: 'muted small' }, err.message)));
+  return box;
+}
+
 function renderUpload(body) {
   const p = A.current.project;
   const excelArea = h('div');
@@ -244,7 +297,15 @@ function renderUpload(body) {
     h('p', { class: 'muted small', style: { marginTop: 0 } },
       'Keyword lists, ranking reports, on-page SEO, backlinks, prompts and article plans. Every sheet is detected and you choose which tab it goes to. ',
       'Upload the updated ranking sheet each month with the same name — it becomes a new report month and the client sees movement.'),
-    excelArea);
+    excelArea,
+    h('div', { class: 'or-line' }, h('span', null, 'or')),
+    googleSheetPicker(p, 'upload', async (fileId) => {
+      excelArea.replaceChildren(h('div', { class: 'spinner' }));
+      try {
+        showMapping(await api('POST', `/api/admin/projects/${p.id}/gsheet/preview`, { fileId }));
+        excelArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) { showDrop(); throw err; }
+    }));
 
   const showDrop = () => excelArea.replaceChildren(dropzone('.xlsx', 'Drop an .xlsx file or click to choose', 'Columns are kept exactly as in your sheet.', async (file) => {
     excelArea.replaceChildren(h('div', { class: 'spinner' }));
@@ -394,7 +455,9 @@ async function renderPerformanceAdmin(body) {
             await api('POST', '/api/admin/google/disconnect'); toast('Google disconnected.'); refresh();
           },
         }, 'Disconnect')),
-      h('div', { class: 'muted' }, 'This account needs access to the client’s GA4 property (Viewer) and Search Console property. Ask the client to add ', h('strong', null, g.email || 'it'), ' if it is not listed below.'));
+      h('div', { class: 'muted' }, 'This account needs access to the client’s GA4 property (Viewer) and Search Console property. Ask the client to add ', h('strong', null, g.email || 'it'), ' if it is not listed below.'),
+      g.sheets ? null : h('div', { class: 'row-flex' }, h('span', { class: 'muted' }, 'To pick Google Sheets instead of uploading .xlsx files, enable the “Google Drive API” in Google Cloud, then'),
+        h('a', { class: 'btn sm', href: `/api/admin/google/connect?project=${p.id}` }, 'Reconnect Google')));
   } else if (g.oauthConfigured) {
     access = h('div', { class: 'row-flex' },
       h('a', { class: 'btn primary', href: `/api/admin/google/connect?project=${p.id}` }, 'Connect Google account'),
@@ -408,7 +471,7 @@ async function renderPerformanceAdmin(body) {
     access = note(
       h('div', null, h('strong', null, 'Google is not connected yet.'), ' One-time setup in Google Cloud (console.cloud.google.com):'),
       h('ol', { style: { margin: 0, paddingLeft: '20px', display: 'grid', gap: '4px' } },
-        h('li', null, 'APIs & Services → Library: enable “Google Analytics Data API”, “Google Search Console API” and “Google Analytics Admin API”.'),
+        h('li', null, 'APIs & Services → Library: enable “Google Analytics Data API”, “Google Search Console API”, “Google Analytics Admin API” and “Google Drive API” (for picking Google Sheets).'),
         h('li', null, 'OAuth consent screen (Google Auth Platform): choose ', h('strong', null, 'Internal'), ', app name “Review Portal”, your email as support contact.'),
         h('li', null, 'Clients → Create client → ', h('strong', null, 'Web application'), '. Under “Authorised redirect URIs” add:'),
         copyBox(g.redirectUri || `${location.origin}/api/admin/google/callback`),
@@ -488,7 +551,13 @@ async function renderPerformanceAdmin(body) {
     h('h3', { style: { margin: 0 } }, '📈 Monthly numbers'),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Everything the client dashboard draws from. Upload business results the client tracks elsewhere (enquiries, bookings, revenue), or Search Console data before access is granted.'),
     rows.length ? h('div', { style: { overflowX: 'auto' } }, h('table', { class: 'plain' }, h('tbody', null, rows))) : h('div', { class: 'muted small' }, 'No numbers yet.'),
-    uploadArea);
+    uploadArea,
+    h('div', { class: 'or-line' }, h('span', null, 'or')),
+    googleSheetPicker(p, 'metrics', async (fileId) => {
+      const r = await api('POST', `/api/admin/projects/${p.id}/analytics/gsheet`, { fileId });
+      toast(`Imported ${r.found.join('; ')}.`);
+      refresh();
+    }));
 
   body.replaceChildren(h('div', { style: { display: 'grid', gap: '16px', maxWidth: '980px' } },
     h('div', { class: 'between' },

@@ -303,22 +303,20 @@ setInterval(() => {
   for (const [k, v] of pendingUploads) if (v.expires < now) pendingUploads.delete(k);
 }, 60 * 1000).unref();
 
-app.post('/api/admin/projects/:id/excel/preview', requireAdmin, upload.single('file'), async (req, res) => {
-  const project = getProject(req.params.id);
-  if (!req.file) throw new HttpError(400, 'Choose an Excel file (.xlsx).');
-  if (!/\.xlsx$/i.test(req.file.originalname)) throw new HttpError(400, 'Only .xlsx files are supported. In Google Sheets use File → Download → Microsoft Excel.');
+// Detected sheets of a workbook, for the team to choose which tab each goes to.
+async function previewWorkbook(project, buffer, filename) {
   let sheets;
   try {
-    sheets = await parseWorkbook(req.file.buffer);
+    sheets = await parseWorkbook(buffer);
   } catch {
     throw new HttpError(400, 'That file could not be read as an Excel workbook.');
   }
   const uploadId = crypto.randomBytes(12).toString('hex');
-  pendingUploads.set(uploadId, { projectId: project.id, sheets, filename: req.file.originalname, expires: Date.now() + 60 * 60 * 1000 });
+  pendingUploads.set(uploadId, { projectId: project.id, sheets, filename, expires: Date.now() + 60 * 60 * 1000 });
   const existing = listDatasets(project.id).filter((d) => d.kind === 'table');
-  res.json({
+  return {
     uploadId,
-    filename: req.file.originalname,
+    filename,
     period: defaultPeriod(),
     sheets: sheets.map((s, index) => {
       // Suggest re-using the existing name so monthly uploads become new versions.
@@ -329,7 +327,43 @@ app.post('/api/admin/projects/:id/excel/preview', requireAdmin, upload.single('f
         existingVersion: Boolean(match),
       };
     }),
-  });
+  };
+}
+
+app.post('/api/admin/projects/:id/excel/preview', requireAdmin, upload.single('file'), async (req, res) => {
+  const project = getProject(req.params.id);
+  if (!req.file) throw new HttpError(400, 'Choose an Excel file (.xlsx).');
+  if (!/\.xlsx$/i.test(req.file.originalname)) throw new HttpError(400, 'Only .xlsx files are supported. In Google Sheets use File → Download → Microsoft Excel, or pick the sheet with “From Google Sheets”.');
+  res.json(await previewWorkbook(project, req.file.buffer, req.file.originalname));
+});
+
+// Google Sheets: the same preview, read straight from the connected Google account.
+// The chosen spreadsheet is remembered per project ("upload" or "metrics").
+async function fetchSheet(project, fileId, purpose) {
+  let file;
+  try { file = await analytics.downloadSpreadsheet(fileId); } catch (err) { throw new HttpError(400, err.message); }
+  const settings = analytics.getSettings(project.id);
+  analytics.saveSettings(project.id, { ...settings, sheets: { ...(settings.sheets || {}), [purpose]: { id: String(fileId), name: file.name } } });
+  return file;
+}
+
+app.get('/api/admin/google/status', requireAdmin, (req, res) => {
+  res.json({ ...analytics.googleIdentity(), oauthConfigured: Boolean(analytics.oauthClient()) });
+});
+
+app.get('/api/admin/google/sheets', requireAdmin, async (req, res) => {
+  try { res.json({ files: await analytics.listSpreadsheets(str(req.query.q, 100)) }); } catch (err) { throw new HttpError(400, err.message); }
+});
+
+app.get('/api/admin/projects/:id/gsheet', requireAdmin, (req, res) => {
+  const p = getProject(req.params.id);
+  res.json({ sheets: analytics.getSettings(p.id).sheets || {} });
+});
+
+app.post('/api/admin/projects/:id/gsheet/preview', requireAdmin, async (req, res) => {
+  const project = getProject(req.params.id);
+  const file = await fetchSheet(project, req.body?.fileId, 'upload');
+  res.json(await previewWorkbook(project, file.buffer, `${file.name} (Google Sheets)`));
 });
 
 app.post('/api/admin/projects/:id/excel/import', requireAdmin, (req, res) => {
@@ -500,11 +534,12 @@ function googleRedirectUri(req) {
 app.get('/api/admin/google/connect', (req, res) => {
   if (!isAdmin(req)) return res.redirect('/admin');
   const project = Number(req.query.project) || 0;
+  const view = ['performance', 'upload'].includes(req.query.back) ? req.query.back : 'performance';
   const nonce = crypto.randomBytes(16).toString('base64url');
-  const state = `${nonce}.${project}`;
+  const state = `${nonce}.${project}.${view}`;
   let url;
   try { url = analytics.googleAuthUrl(googleRedirectUri(req), state); } catch (err) {
-    return res.redirect(`/admin?google=error&msg=${encodeURIComponent(err.message)}#/${project ? `project/${project}/performance` : ''}`);
+    return res.redirect(`/admin?google=error&msg=${encodeURIComponent(err.message)}#/${project ? `project/${project}/${view}` : ''}`);
   }
   res.cookie('portal_google', `${state}.${sign(`google:${state}`)}`, {
     httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 10 * 60 * 1000, path: '/api/admin/google',
@@ -517,7 +552,8 @@ app.get('/api/admin/google/callback', async (req, res) => {
   res.clearCookie('portal_google', { path: '/api/admin/google' });
   const state = String(req.query.state || '');
   const project = Number(state.split('.')[1]) || 0;
-  const back = (status, message) => res.redirect(`/admin?google=${status}${message ? `&msg=${encodeURIComponent(message)}` : ''}#/${project ? `project/${project}/performance` : ''}`);
+  const view = state.split('.')[2] === 'upload' ? 'upload' : 'performance';
+  const back = (status, message) => res.redirect(`/admin?google=${status}${message ? `&msg=${encodeURIComponent(message)}` : ''}#/${project ? `project/${project}/${view}` : ''}`);
   const expected = `${state}.${sign(`google:${state}`)}`;
   const validState = state && cookie.length === expected.length && crypto.timingSafeEqual(Buffer.from(cookie), Buffer.from(expected));
   if (!isAdmin(req) || !validState) return back('error', 'The sign-in link expired. Please click Connect again.');
@@ -581,6 +617,16 @@ app.post('/api/admin/projects/:id/analytics/upload', requireAdmin, upload.single
   try { sheets = await parseWorkbook(req.file.buffer); } catch { throw new HttpError(400, 'That file could not be read as an Excel workbook.'); }
   const r = analytics.importMetricSheets(p.id, sheets);
   if (!r.count) throw new HttpError(400, 'No monthly numbers found. Use a sheet with a Month column (e.g. "Oct 2026") and one column per number, or a Search Console "Dates" export.');
+  res.json({ ok: true, ...r });
+});
+
+app.post('/api/admin/projects/:id/analytics/gsheet', requireAdmin, async (req, res) => {
+  const p = getProject(req.params.id);
+  const file = await fetchSheet(p, req.body?.fileId, 'metrics');
+  let sheets;
+  try { sheets = await parseWorkbook(file.buffer); } catch { throw new HttpError(400, 'That spreadsheet could not be read.'); }
+  const r = analytics.importMetricSheets(p.id, sheets);
+  if (!r.count) throw new HttpError(400, 'No monthly numbers found. Use a sheet with a Month column (e.g. "Oct 2026") and one column per number.');
   res.json({ ok: true, ...r });
 });
 

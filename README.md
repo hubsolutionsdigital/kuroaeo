@@ -84,7 +84,7 @@ Clients switch between **✅ Review** and **📈 Performance**. The Performance 
 
 The portal signs in as one agency Google account (no key file needed, so it works when your organisation blocks service account keys).
 
-1. In Google Cloud → **APIs & Services → Library**, enable the **Google Analytics Data API**, **Google Search Console API** and **Google Analytics Admin API** (the last one only lists properties for the picker).
+1. In Google Cloud → **APIs & Services → Library**, enable the **Google Analytics Data API**, **Google Search Console API**, **Google Analytics Admin API** (lists properties for the picker) and **Google Drive API** (lets you pick a Google Sheet instead of uploading an .xlsx: on the Upload tab for keyword and ranking sheets, and under Monthly numbers).
 2. **OAuth consent screen** (Google Auth Platform): audience **Internal**, so only your Workspace accounts can sign in and the connection does not expire after 7 days.
 3. **Clients → Create client → Web application**, with the authorised redirect URI shown in **Admin → project → Performance** (`https://<your domain>/api/admin/google/callback`).
 4. In Railway → Variables, add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. After the redeploy, click **Connect Google account** in Admin → Performance and sign in with the account that has access to your clients' GA4 and Search Console. The refresh token is stored encrypted with `SESSION_SECRET` (or the admin password); changing either means connecting again.

@@ -169,7 +169,7 @@ test('reads Google data through a connected Google account instead of a key', as
         const idToken = `x.${Buffer.from(JSON.stringify({ email: 'seo@hubsolutions.one' })).toString('base64url')}.y`;
         return json({
           access_token: 'first', expires_in: 1, refresh_token: 'refresh-123', id_token: idToken,
-          scope: 'openid email https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly',
+          scope: 'openid email https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/drive.readonly',
         });
       }
       assert.equal(b.get('refresh_token'), 'refresh-123');
@@ -180,6 +180,13 @@ test('reads Google data through a connected Google account instead of a key', as
     if (url.endsWith('/webmasters/v3/sites')) return json({ siteEntry: [{ siteUrl: 'sc-domain:example.com', permissionLevel: 'siteFullUser' }] });
     if (url.includes('accountSummaries')) return json({ accountSummaries: [{ displayName: 'Hearing Room', propertySummaries: [{ property: 'properties/987', displayName: 'Website' }] }] });
     if (url.includes('searchAnalytics')) return json({ rows: [] });
+    if (url.startsWith('https://www.googleapis.com/drive/v3/files?')) {
+      const q = new URL(url).searchParams.get('q');
+      assert.match(q, /name contains 'Ranking\\'s'/, 'search text is escaped');
+      return json({ files: [{ id: 'sheet1234567', name: "Ranking's 2026", mimeType: 'application/vnd.google-apps.spreadsheet', modifiedTime: '2026-10-20T00:00:00Z' }] });
+    }
+    if (url.includes('/drive/v3/files/sheet1234567/export')) return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+    if (url.includes('/drive/v3/files/sheet1234567?')) return json({ id: 'sheet1234567', name: "Ranking's 2026", mimeType: 'application/vnd.google-apps.spreadsheet' });
     throw new Error(`unexpected ${url}`);
   };
 
@@ -201,7 +208,15 @@ test('reads Google data through a connected Google account instead of a key', as
   assert.deepEqual(props.gsc, ['sc-domain:example.com']);
   assert.deepEqual(props.ga4, [{ id: '987', name: 'Website (Hearing Room)' }]);
 
+  assert.equal(analytics.googleIdentity().sheets, true);
+  const files = await analytics.listSpreadsheets("Ranking's", fakeFetch);
+  assert.deepEqual(files.map((f) => f.name), ["Ranking's 2026"]);
+  const file = await analytics.downloadSpreadsheet('sheet1234567', fakeFetch);
+  assert.equal(file.buffer.length, 3);
+  await assert.rejects(analytics.downloadSpreadsheet('../etc', fakeFetch), /Choose a spreadsheet/);
+
   await analytics.disconnectGoogle(fakeFetch);
   assert.equal(grants.at(-1), 'revoke');
+  await assert.rejects(analytics.listSpreadsheets('', fakeFetch), /Connect your Google account/);
   assert.equal(analytics.googleIdentity().mode, 'service', 'falls back to the service account');
 });
