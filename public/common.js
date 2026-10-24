@@ -176,13 +176,15 @@ function openFeedbackPopover(opts) {
     opts.context ? h('div', { class: 'ctx' }, opts.context) : null,
     opts.quote ? h('div', { class: 'quote' }, `“${opts.quote}”`) : null,
     h('div', { class: 'choices' },
-      mkChoice('love'), mkChoice('like'), mkChoice('great'),
-      h('span', { class: 'choice-break' }),
-      mkChoice('approve'),
-      h('span', { class: 'choice-break' }),
-      mkChoice('change'),
-      h('span', { class: 'choice-break' }),
-      mkChoice('question')),
+      opts.types
+        ? opts.types.map((t, i) => [i ? h('span', { class: 'choice-break' }) : null, mkChoice(t)])
+        : [mkChoice('love'), mkChoice('like'), mkChoice('great'),
+          h('span', { class: 'choice-break' }),
+          mkChoice('approve'),
+          h('span', { class: 'choice-break' }),
+          mkChoice('change'),
+          h('span', { class: 'choice-break' }),
+          mkChoice('question')]),
     h('div', { class: 'pop-fields' }, nameInput, comment),
     h('div', { class: 'pop-actions' },
       h('button', { type: 'button', class: 'btn ghost', onclick: closePopover }, 'Cancel'),
@@ -335,4 +337,57 @@ function formatNumber(v) {
   if (typeof v !== 'number') return String(v);
   if (Number.isInteger(v)) return v.toLocaleString();
   return String(parseFloat(v.toFixed(4)));
+}
+
+/* ---------- tracked changes: words the client edited in an article ---------- */
+
+// Show an edited paragraph with added words highlighted and removed words
+// struck through, keeping the formatting (bold, links) of the edited version.
+function diffHtml(originalHtml, editedHtml) {
+  const tok = (html) => String(html || '').match(/<[^>]+>|[^<\s]+\s*|\s+/g) || [];
+  const isWord = (t) => t[0] !== '<' && t.trim() !== '';
+  const a = tok(originalHtml).filter(isWord);
+  const bt = tok(editedHtml);
+  const b = bt.filter(isWord);
+  const key = (t) => t.trim();
+  const n = a.length; const m = b.length;
+  const ops = []; // per edited word: 'eq' | 'ins'; deletions are queued before the next edited word
+  const dels = Array.from({ length: m + 1 }, () => []);
+  if (n * m > 4e6) {
+    for (let j = 0; j < m; j++) ops.push('ins');
+    dels[0] = a;
+  } else {
+    const L = new Uint16Array((n + 1) * (m + 1));
+    const at = (i, j) => i * (m + 1) + j;
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        L[at(i, j)] = key(a[i]) === key(b[j]) ? L[at(i + 1, j + 1)] + 1 : Math.max(L[at(i + 1, j)], L[at(i, j + 1)]);
+      }
+    }
+    let i = 0; let j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && key(a[i]) === key(b[j])) { ops.push('eq'); i++; j++; }
+      else if (i < n && (j >= m || L[at(i + 1, j)] >= L[at(i, j + 1)])) { dels[j].push(a[i]); i++; }
+      else { ops.push('ins'); j++; }
+    }
+  }
+  const delHtml = (list) => (list.length ? `<del class="ed-del" contenteditable="false">${list.join('').trim()}</del> ` : '');
+  let out = '';
+  let w = 0;
+  for (const t of bt) {
+    if (!isWord(t)) { out += t; continue; }
+    out += delHtml(dels[w]);
+    out += ops[w] === 'ins' ? `<ins class="ed-ins">${t.trimEnd()}</ins>${t.slice(t.trimEnd().length)}` : t;
+    w++;
+  }
+  // One highlight for neighbouring added words rather than one per word.
+  return (out + delHtml(dels[m])).replace(/<\/ins>(\s+)<ins class="ed-ins">/g, '$1');
+}
+
+// What was added and removed, as short plain text for the changes log.
+function diffSummary(originalHtml, editedHtml) {
+  const box = document.createElement('div');
+  box.innerHTML = diffHtml(originalHtml, editedHtml);
+  const grab = (sel) => [...box.querySelectorAll(sel)].map((e) => e.textContent.trim()).join(' ').replace(/\s+/g, ' ');
+  return { added: grab('ins'), removed: grab('del') };
 }

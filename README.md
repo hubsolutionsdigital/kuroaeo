@@ -10,9 +10,11 @@ A review portal for SEO/AEO client work. The team uploads Excel sheets and blog 
 | 💬 Prompts | AI search prompts (AEO) |
 | ✍️ Blogs | Blog articles from Word documents, plus article plans from Excel |
 
-For any row, article, or highlighted passage of text, a client can choose one of these:
+For any row in a sheet, a client can choose one of these:
 ❤️ **Love it** · 👍 **Like this** · 🎉 **This is great** · ✅ **Approve** · ✏️ **Suggest a change** · ❓ **Ask a question**.
 The client adds their name and an optional comment. Their name is remembered in their browser. The team answers from the admin dashboard, and replies show up on the client's link.
+
+Blogs and landing pages work like a Word document: the client clicks any paragraph, heading, list item or table cell and edits the words directly. Edits save automatically under their name, added words are highlighted and removed words struck through, and each edit can be undone. The team sees every edit as a before-and-after on the Feedback tab (and in the CSV export), and copies the new wording into the next version of the document. Clients approve each article, or leave a comment or question.
 
 ## Run it
 

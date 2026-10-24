@@ -69,10 +69,14 @@ async function sendFeedback(item, datasetId, { type, name, comment }, quote, are
   await refreshFeedback();
 }
 
-function feedbackPopover(anchor, item, datasetId, { title, quote, preselect, area } = {}) {
+// Blogs and landing pages are edited directly, so their feedback has no reactions.
+const DOC_TYPES = ['approve', 'change', 'question'];
+
+function feedbackPopover(anchor, item, datasetId, { title, quote, preselect, area, types } = {}) {
   const noun = TAB_META[S.tab].noun;
   openFeedbackPopover({
     anchor,
+    types: types || (INDEPENDENT_STEPS.has(S.tab) ? DOC_TYPES : null),
     title: title || `What do you think of this ${noun}?`,
     context: area ? `${item.label} · ${area}` : item.label,
     quote,
@@ -147,6 +151,7 @@ function render() {
 }
 
 function setView(view, initial) {
+  flushEdits();
   S.view = view;
   document.querySelectorAll('.view-switch button').forEach((b) => {
     b.classList.toggle('active', b.dataset.view === view);
@@ -296,6 +301,7 @@ function currentStep() {
 }
 
 function goStep(t) {
+  flushEdits();
   if (S.view !== 'review') { S.view = 'review'; S.tab = t; setView('review'); return; }
   S.tab = t;
   S.filter = { q: '', status: 'all' };
@@ -1272,7 +1278,7 @@ function renderDoc(payload) {
     section = hasOverview ? 'overview' : (articles[0] && articles[0].item_key);
   }
   S.docSection[dataset.id] = section;
-  const go = (s) => { S.docSection[dataset.id] = s; renderTabBody(); window.scrollTo({ top: document.getElementById('tabs').offsetTop - 8 }); };
+  const go = (s) => { flushEdits(); S.docSection[dataset.id] = s; renderTabBody(); window.scrollTo({ top: document.getElementById('tabs').offsetTop - 8 }); };
 
   const checksDone = checks.filter((c) => itemStatus(fb.get(c.item_key)).key === 'approved').length;
   const nav = h('nav', { class: 'doc-nav' },
@@ -1281,9 +1287,10 @@ function renderDoc(payload) {
       checks.length ? h('span', { class: 'muted small' }, `${checksDone} of ${checks.length} points confirmed`) : null) : null,
     articles.map((a) => {
       const st = itemStatus(fb.get(a.item_key));
+      const nEdits = (payload.edits || []).filter((e) => e.item_key === a.item_key).length;
       return h('button', { class: section === a.item_key ? 'active' : '', onclick: () => go(a.item_key) },
         h('span', { class: 't' }, a.data.number ? `${a.data.number}. ${a.data.title}` : a.data.title),
-        h('span', null, statusChip(st)));
+        h('span', null, statusChip(st), nEdits ? h('span', { class: 'chip edits-chip' }, `✏️ ${nEdits} ${nEdits === 1 ? 'edit' : 'edits'}`) : null));
     }));
 
   const main = h('article', { class: 'card doc-main' });
@@ -1295,8 +1302,8 @@ function renderDoc(payload) {
       const st = itemStatus(fb.get(c.item_key));
       const confirm = h('button', { class: 'btn sm' }, '✓ Confirm');
       confirm.addEventListener('click', () => feedbackPopover(confirm, c, dataset.id, { title: 'Confirm this point?', preselect: 'approve' }));
-      const comment = h('button', { class: 'btn ghost sm' }, '★ Review');
-      comment.addEventListener('click', () => feedbackPopover(comment, c, dataset.id, { title: 'What do you think of this point?' }));
+      const comment = h('button', { class: 'btn ghost sm' }, '💬 Comment');
+      comment.addEventListener('click', () => feedbackPopover(comment, c, dataset.id, { title: 'Comment on this point', types: ['change', 'question'] }));
       const n = (fb.get(c.item_key) || []).length;
       return h('div', { class: `check-item${st.key === 'approved' ? ' done' : ''}` },
         h('span', { class: 'box' }, st.key === 'approved' ? '✓' : ''),
@@ -1318,57 +1325,164 @@ function renderDoc(payload) {
     const a = articles.find((x) => x.item_key === section);
     const st = itemStatus(fb.get(a.item_key));
     const noun = TAB_META[dataset.tab].noun;
-    const approveBtn = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : `✓ Approve ${noun}`);
-    approveBtn.addEventListener('click', () => feedbackPopover(approveBtn, a, dataset.id, { title: `Approve this ${noun}?`, preselect: 'approve' }));
-    const fbBtn = h('button', { class: 'btn' }, '★ Overall feedback');
-    fbBtn.addEventListener('click', () => feedbackPopover(fbBtn, a, dataset.id, { title: `What do you think of this ${noun}?` }));
-    const bar = () => h('div', { class: 'approve-bar' },
-      h('div', { class: 'row-flex' }, statusChip(st), reactionsRow(st),
+    const approve = () => {
+      const b = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : `✓ Approve ${noun}`);
+      b.addEventListener('click', () => { flushEdits(); feedbackPopover(b, a, dataset.id, { title: `Approve this ${noun}?`, preselect: 'approve', types: ['approve'] }); });
+      return b;
+    };
+    const fbBtn = h('button', { class: 'btn' }, '💬 Comment or question');
+    fbBtn.addEventListener('click', () => feedbackPopover(fbBtn, a, dataset.id, { title: `Comment on this ${noun}`, types: ['change', 'question'] }));
+    const editCount = h('span');
+    main.append(h('div', { class: 'approve-bar' },
+      h('div', { class: 'row-flex' }, statusChip(st), editCount,
         st.lastApproval ? h('span', { class: 'muted small' }, `by ${st.lastApproval.name}, ${timeAgo(st.lastApproval.created_at)}`) : null),
-      h('div', { class: 'row-flex' }, fbBtn, approveBtn));
+      h('div', { class: 'row-flex' }, fbBtn, approve())));
+    main.append(h('div', { class: 'select-hint', style: { marginBottom: '16px' } },
+      '✏️ Click any text to edit it, just like in Word. Your changes save automatically and are highlighted, so our team can see exactly what you changed.'));
 
-    const selectable = h('div', { 'data-item-key': a.item_key });
     if (a.data.seo && a.data.seo.length) {
-      selectable.append(h('div', { class: 'seo-card' },
+      main.append(h('div', { class: 'seo-card' },
         h('div', { class: 'seo-head', style: { paddingTop: '12px' } }, h('h4', null, 'SEO details')),
         a.data.seo.map(([k, v]) => h('div', { class: 'row' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v)))));
     }
-    const prose = h('div', { class: 'prose', html: a.data.html });
-    selectable.append(prose);
-
-    main.append(bar(),
-      h('div', { class: 'select-hint', style: { marginBottom: '16px' } }, '💡 Point at any paragraph, heading or image and press 💬 to tell us what you love or want changed. You can also highlight exact words.'),
-      selectable);
+    const prose = h('div', { class: 'prose editable-doc', html: a.data.html });
+    main.append(prose);
+    const changes = h('div');
+    const comments = h('div', { style: { marginTop: '22px' } });
+    side.append(changes, comments);
+    makeEditable(prose, payload, a, { changes, editCount });
 
     const idx = articles.indexOf(a);
     main.append(h('div', { class: 'between', style: { marginTop: '28px', paddingTop: '18px', borderTop: '1px solid var(--line)' } },
       idx > 0 ? h('button', { class: 'btn', onclick: () => go(articles[idx - 1].item_key) }, '← Previous') : (hasOverview ? h('button', { class: 'btn', onclick: () => go('overview') }, '← Overview') : h('span')),
-      h('div', { class: 'row-flex' },
-        (() => { const b = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : `✓ Approve ${noun}`); b.addEventListener('click', () => feedbackPopover(b, a, dataset.id, { title: `Approve this ${noun}?`, preselect: 'approve' })); return b; })(),
+      h('div', { class: 'row-flex' }, approve(),
         idx < articles.length - 1 ? h('button', { class: 'btn primary', onclick: () => go(articles[idx + 1].item_key) }, `Next ${noun} →`) : null)));
 
-    const threads = threadsOf(fb.get(a.item_key) || []);
-    // Order the log by where each comment sits in the article.
-    setTimeout(() => {
-      const order = [];
-      for (const t of threads) {
-        let marks = t.root.quote ? highlightQuote(selectable, t.root.quote, t.root.id) : [];
-        if (!marks.length && /^Image: /.test(t.root.quote)) {
-          // Images have no text to highlight: mark the picture itself.
-          const block = [...selectable.querySelectorAll('.blk')].find((el) => blockQuote(el) === t.root.quote);
-          if (block) { block.classList.add('img-fb'); block.dataset.fid = t.root.id; marks = [block]; }
-        }
-        for (const m of marks) m.addEventListener('click', () => focusThread(t.root.id));
-        order.push({ t, pos: marks[0] ? marks[0].getBoundingClientRect().top + window.scrollY : (t.root.quote ? 1e9 : -1) });
-      }
-      order.sort((x, y) => x.pos - y.pos);
-      feedbackLog(side, 'Feedback log', order, { key: a.item_key, empty: `No feedback yet. Point at any part of the ${noun} and press 💬.` });
-    });
-    setupSelection(selectable, a, dataset.id);
-    setupBlocks(selectable, prose, a, dataset.id);
+    const threads = threadsOf(fb.get(a.item_key) || []).reverse().map((t) => ({ t }));
+    if (threads.length) feedbackLog(comments, 'Comments and approvals', threads, { key: a.item_key });
   }
 
   return h('div', { class: 'doc-layout' }, nav, main, side);
+}
+
+/* ---------- direct editing of blog and landing page text ---------- */
+
+// The paragraphs, headings, list items and table cells a client can edit,
+// numbered in the order they appear in the uploaded article.
+function editBlocks(root) {
+  const out = [];
+  for (const el of root.children) {
+    if (/^(UL|OL)$/.test(el.tagName)) out.push(...el.querySelectorAll(':scope > li'));
+    else if (el.tagName === 'TABLE') out.push(...el.querySelectorAll('th, td'));
+    else out.push(el);
+  }
+  return out;
+}
+
+// The edited words without the change highlighting.
+function cleanEdited(el) {
+  const c = el.cloneNode(true);
+  c.querySelectorAll('del.ed-del').forEach((x) => x.remove());
+  c.querySelectorAll('ins.ed-ins').forEach((x) => x.replaceWith(...x.childNodes));
+  return c.innerHTML;
+}
+const plainWords = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent.replace(/\s+/g, ' ').trim(); };
+
+// Saves whichever paragraph is being edited, e.g. before moving to another article.
+function flushEdits() {
+  const el = document.activeElement;
+  if (el && el.isContentEditable && el.closest('.editable-doc')) el.blur();
+}
+window.addEventListener('beforeunload', (e) => {
+  const el = document.activeElement;
+  if (el && el.isContentEditable && el.dataset.dirty === '1') { flushEdits(); e.preventDefault(); }
+});
+
+function makeEditable(prose, payload, article, { changes, editCount }) {
+  const dataset = payload.dataset;
+  const blocks = editBlocks(prose);
+  const originals = blocks.map((el) => el.innerHTML);
+  const editsMap = () => new Map((payload.edits || []).filter((e) => e.item_key === article.item_key).map((e) => [e.block, e]));
+  const paint = (el, i) => {
+    const e = editsMap().get(i);
+    el.innerHTML = e ? diffHtml(originals[i], e.html) : originals[i];
+    el.classList.toggle('edited', Boolean(e));
+  };
+
+  const drawLog = () => {
+    const list = [...editsMap().values()];
+    editCount.replaceChildren(list.length ? h('span', { class: 'chip edits-chip' }, `✏️ ${list.length} ${list.length === 1 ? 'edit' : 'edits'}`) : '');
+    changes.replaceChildren(
+      h('div', { class: 'log-head' }, h('h4', null, `Your changes (${list.length})`)),
+      h('div', { class: 'muted small', style: { marginBottom: '10px' } }, list.length
+        ? h('span', null, 'In the article, ', h('ins', { class: 'ed-ins' }, 'added words'), ' are highlighted and ', h('del', { class: 'ed-del' }, 'removed words'), ' are struck through.')
+        : 'No changes yet. Click any text in the article to edit it.'),
+      h('div', { class: 'log-list' }, list.map((e) => {
+        const d = diffSummary(e.original_html, e.html);
+        const where = plainWords(originals[e.block]).slice(0, 60);
+        return h('div', { class: 'thread edit-card' },
+          h('div', { class: 'muted small' }, `“${where}${where.length >= 60 ? '…' : ''}”`),
+          d.removed ? h('div', { class: 'small' }, h('del', { class: 'ed-del' }, d.removed)) : null,
+          d.added ? h('div', { class: 'small' }, h('ins', { class: 'ed-ins' }, d.added)) : null,
+          h('div', { class: 'between', style: { marginTop: '6px' } },
+            h('span', { class: 'muted small' }, `${e.name} · ${timeAgo(e.updated_at)}`),
+            h('span', { class: 'row-flex' },
+              h('button', { class: 'btn ghost sm', onclick: () => { const el = blocks[e.block]; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } }, 'Show'),
+              h('button', { class: 'btn ghost sm', onclick: () => undo(e.block) }, 'Undo'))));
+      })));
+  };
+
+  const save = async (el, i, { repaint }) => {
+    const html = cleanEdited(el);
+    const prev = editsMap().get(i);
+    const same = plainWords(html) === plainWords(prev ? prev.html : originals[i]);
+    el.dataset.dirty = '';
+    if (same) { if (repaint) paint(el, i); return; }
+    const name = getName() || askName();
+    if (!name) { toast('Please add your name so our team knows who made the change.', true); el.dataset.dirty = '1'; return; }
+    try {
+      const r = await api('PUT', `/api/c/${encodeURIComponent(token)}/edits`, {
+        dataset_id: dataset.id, item_key: article.item_key, block: i, html, original_html: originals[i], name,
+      });
+      payload.edits = r.edits;
+      if (repaint && document.activeElement !== el) paint(el, i);
+      drawLog();
+    } catch (err) { el.dataset.dirty = '1'; toast(err.message, true); }
+  };
+
+  const undo = async (i) => {
+    const r = await api('DELETE', `/api/c/${encodeURIComponent(token)}/edits`, { dataset_id: dataset.id, item_key: article.item_key, block: i });
+    payload.edits = r.edits;
+    paint(blocks[i], i);
+    drawLog();
+    toast('Change undone.');
+  };
+
+  blocks.forEach((el, i) => {
+    el.dataset.block = i;
+    el.setAttribute('contenteditable', 'true');
+    el.spellcheck = true;
+    paint(el, i);
+    let timer = null;
+    el.addEventListener('input', () => {
+      el.dataset.dirty = '1';
+      clearTimeout(timer);
+      timer = setTimeout(() => save(el, i, { repaint: false }), 2000);
+    });
+    el.addEventListener('blur', () => { clearTimeout(timer); save(el, i, { repaint: true }); });
+    // Paste as plain words, so formatting from other documents does not come along.
+    el.addEventListener('paste', (ev) => {
+      ev.preventDefault();
+      document.execCommand('insertText', false, (ev.clipboardData || window.clipboardData).getData('text/plain'));
+    });
+    el.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); document.execCommand('insertLineBreak'); }
+      if (ev.key === 'Escape') el.blur();
+    });
+    // Links open only with Ctrl/Cmd-click while editing.
+    el.addEventListener('click', (ev) => { const link = ev.target.closest('a'); if (link && !(ev.metaKey || ev.ctrlKey)) ev.preventDefault(); });
+  });
+  drawLog();
 }
 
 function scrollToMark(id) {
@@ -1458,8 +1572,9 @@ const TOUR_STEPS = [
     title: 'Reviewing blogs and landing pages',
     body: [
       'Open an article or landing page and read it as it will appear on your site.',
-      'Point at any paragraph, heading or image and press 💬 to say what you love or want changed. You can also highlight exact words.',
-      'Every comment is kept in the Feedback log beside the article, with the section it is about and our replies.',
+      'Click any text and edit it directly, just like in Word. Changes save automatically.',
+      'Your changes are highlighted, and listed under “Your changes” beside the article, where you can undo any of them.',
+      'Use 💬 Comment or question for anything you would rather we changed for you.',
       'Confirm the review points in the Overview, then press ✓ Approve when you are happy.',
     ],
   },

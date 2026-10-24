@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 const { db, transaction } = require('./lib/db');
 const { parseWorkbook, primaryColumn, normalizeKey, TABS } = require('./lib/excel');
-const { parseBlogDoc } = require('./lib/docx');
+const { parseBlogDoc, sanitizeEdit, stripTags } = require('./lib/docx');
 const analytics = require('./lib/analytics');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -176,7 +176,17 @@ function getDatasetPayload(projectId, datasetId) {
     },
     items,
     previous,
+    edits: d.kind === 'doc' ? listEdits({ datasetId: d.id }) : [],
   };
+}
+
+function listEdits({ datasetId, projectId }) {
+  return db.prepare(`
+    SELECT e.dataset_id, e.item_key, e.block, e.original_html, e.html, e.name, e.updated_at, d.name AS dataset_name, d.tab, i.label AS item_label
+    FROM doc_edits e JOIN datasets d ON d.id = e.dataset_id
+    LEFT JOIN items i ON i.dataset_id = e.dataset_id AND i.item_key = e.item_key
+    WHERE ${datasetId ? 'e.dataset_id = ?' : 'e.project_id = ?'} ORDER BY e.dataset_id, e.item_key, e.block
+  `).all(datasetId || projectId);
 }
 
 // Optional campaign phase (1-12) an upload belongs to, e.g. the blogs for Phase 2.
@@ -455,6 +465,11 @@ function csvCell(v) {
   return /[",\n\r]/.test(s) || /^[=+\-@]/.test(s) ? `"${s.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : s;
 }
 
+app.get('/api/admin/projects/:id/edits', requireAdmin, (req, res) => {
+  const p = getProject(req.params.id);
+  res.json({ edits: listEdits({ projectId: p.id }) });
+});
+
 app.get('/api/admin/projects/:id/feedback.csv', requireAdmin, (req, res) => {
   const project = getProject(req.params.id);
   const all = listFeedback(project.id);
@@ -462,6 +477,10 @@ app.get('/api/admin/projects/:id/feedback.csv', requireAdmin, (req, res) => {
   const lines = [header.join(',')];
   for (const f of all) {
     lines.push([f.created_at, f.tab, f.item_label, f.area, f.type, f.name, f.author_role, f.comment, f.quote, f.status, f.parent_id || '']
+      .map(csvCell).join(','));
+  }
+  for (const e of listEdits({ projectId: project.id })) {
+    lines.push([e.updated_at, e.tab, e.item_label || e.item_key, `Paragraph ${e.block + 1}`, 'edit', e.name, 'client', `After: ${words(e.html)}`, `Before: ${words(e.original_html)}`, '', '']
       .map(csvCell).join(','));
   }
   const filename = `${project.name.replace(/[^a-z0-9]+/gi, '-')}-feedback.csv`;
@@ -606,6 +625,49 @@ app.get('/api/c/:token/analytics', (req, res) => {
 app.get('/api/c/:token/feedback', (req, res) => {
   const p = projectByToken(req.params.token);
   res.json({ feedback: listFeedback(p.id), progress: tabProgress(p.id) });
+});
+
+// The client edits a paragraph of a blog or landing page directly. The edit
+// replaces any earlier one for that paragraph; an edit back to the original
+// words removes it.
+const words = (html) => stripTags(String(html || '')).replace(/\s+/g, ' ').trim();
+function editTarget(p, b) {
+  const d = db.prepare("SELECT id, tab FROM datasets WHERE id = ? AND project_id = ? AND kind = 'doc'").get(Number(b.dataset_id), p.id);
+  if (!d) throw new HttpError(404, 'Not found.');
+  const item = db.prepare("SELECT data FROM items WHERE dataset_id = ? AND item_key = ? AND kind = 'article'").get(d.id, String(b.item_key || ''));
+  if (!item) throw new HttpError(404, 'Not found.');
+  const block = Number(b.block);
+  if (!Number.isInteger(block) || block < 0 || block > 5000) throw new HttpError(400, 'Invalid request.');
+  return { d, item, block };
+}
+
+app.put('/api/c/:token/edits', (req, res) => {
+  const p = projectByToken(req.params.token);
+  const b = req.body || {};
+  const { d, item, block } = editTarget(p, b);
+  const name = str(b.name, 80);
+  if (!name) throw new HttpError(400, 'Please add your name.');
+  const html = sanitizeEdit(String(b.html || '').slice(0, 50000));
+  const originalHtml = sanitizeEdit(String(b.original_html || '').slice(0, 50000));
+  // The original must be text from this article, so the agency sees a true before and after.
+  const article = words(parseJSON(item.data, {}).html);
+  if (!article.includes(words(originalHtml))) throw new HttpError(400, 'This article has changed. Please reload the page.');
+  if (words(html) === words(originalHtml)) {
+    db.prepare('DELETE FROM doc_edits WHERE dataset_id = ? AND item_key = ? AND block = ?').run(d.id, b.item_key, block);
+  } else {
+    db.prepare(`
+      INSERT INTO doc_edits (project_id, dataset_id, item_key, block, original_html, html, name, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT (dataset_id, item_key, block) DO UPDATE SET html = excluded.html, name = excluded.name, updated_at = excluded.updated_at
+    `).run(p.id, d.id, b.item_key, block, originalHtml, html, name);
+  }
+  res.json({ ok: true, edits: listEdits({ datasetId: d.id }) });
+});
+
+app.delete('/api/c/:token/edits', (req, res) => {
+  const p = projectByToken(req.params.token);
+  const { d, block } = editTarget(p, req.body || {});
+  db.prepare('DELETE FROM doc_edits WHERE dataset_id = ? AND item_key = ? AND block = ?').run(d.id, req.body.item_key, block);
+  res.json({ ok: true, edits: listEdits({ datasetId: d.id }) });
 });
 
 function validateClientFeedback(b) {

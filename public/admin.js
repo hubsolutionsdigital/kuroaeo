@@ -516,10 +516,34 @@ function renderFeedback(body) {
     h('option', { value: 'all' }, 'All tabs'), TAB_ORDER.map((t) => h('option', { value: t, selected: f.tab === t }, TAB_META[t].label)));
   tabSel.addEventListener('change', () => { f.tab = tabSel.value; renderProject(); });
 
+  // Words the client changed directly in blogs and landing pages.
+  const editsBox = h('div');
+  api('GET', `/api/admin/projects/${p.id}/edits`).then(({ edits }) => {
+    const shown = edits.filter((e) => f.tab === 'all' || e.tab === f.tab);
+    if (!shown.length) return;
+    const byItem = new Map();
+    for (const e of shown) {
+      const k = `${e.dataset_id}|${e.item_key}`;
+      if (!byItem.has(k)) byItem.set(k, []);
+      byItem.get(k).push(e);
+    }
+    editsBox.replaceChildren(h('div', { class: 'card card-pad', style: { maxWidth: '860px', marginBottom: '16px' } },
+      h('h3', { style: { margin: '0 0 4px' } }, `✏️ Text edited by the client (${shown.length})`),
+      h('div', { class: 'muted small', style: { marginBottom: '12px' } }, h('ins', { class: 'ed-ins' }, 'Added words'), ' are highlighted and ', h('del', { class: 'ed-del' }, 'removed words'), ' struck through. Copy the new wording into the article, then upload the updated document.'),
+      [...byItem.values()].map((list) => h('div', { style: { marginBottom: '14px' } },
+        h('div', { style: { fontWeight: 700, marginBottom: '6px' } }, `${TAB_META[list[0].tab].icon} ${list[0].item_label || list[0].item_key}`, h('span', { class: 'muted small', style: { fontWeight: 400 } }, ` · ${list[0].dataset_name}`)),
+        list.map((e) => h('div', { class: 'edit-diff' },
+          h('div', { class: 'prose', html: diffHtml(e.original_html, e.html) }),
+          h('div', { class: 'between', style: { marginTop: '6px' } },
+            h('span', { class: 'muted small' }, `${e.name} · ${timeAgo(e.updated_at)}`),
+            h('button', { class: 'btn sm ghost', onclick: () => navigator.clipboard.writeText(new DOMParser().parseFromString(e.html, 'text/html').body.textContent.trim()).then(() => toast('New wording copied.'), () => {}) }, 'Copy new wording'))))))));
+  }, () => {});
+
   body.append(
     h('div', { class: 'toolbar' },
       h('div', { class: 'left' }, statusSeg, tabSel),
       h('div', { class: 'right' }, h('a', { class: 'btn', href: `/api/admin/projects/${p.id}/feedback.csv` }, '⬇ Export CSV'))),
+    editsBox,
     threads.length
       ? h('div', { style: { display: 'grid', gap: '12px', maxWidth: '860px' } }, threads.map((t) => renderThread(t, {
         showItem: true,

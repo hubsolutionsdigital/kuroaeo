@@ -162,3 +162,42 @@ test('a bold lead-in at the end of an article does not swallow the next article'
   assert.deepEqual(doc.articles.map((a) => a.title), ['First article', 'Second article', 'Third article']);
   assert.match(doc.articles[0].html, /Visit us at the clinic/);
 });
+
+test('clients edit blog text directly and the agency sees what changed', async (t) => {
+  const { db } = require('../lib/db');
+  const server = app.listen(0);
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = async (method, url, body) => {
+    const res = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, body: await res.json() };
+  };
+  const pid = Number(db.prepare("INSERT INTO projects (name, token) VALUES ('Blog Co', 'blog-edit-token')").run().lastInsertRowid);
+  const ds = Number(db.prepare("INSERT INTO datasets (project_id, tab, name, kind) VALUES (?, 'blogs', 'Blogs', 'doc')").run(pid).lastInsertRowid);
+  const html = '<h2>Free hearing tests</h2><p>We offer <strong>free</strong> hearing tests in Singapore.</p>';
+  db.prepare("INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, 'blogs', 'article', 'blogs:article:a', 'Article A', 0, ?)")
+    .run(ds, pid, JSON.stringify({ title: 'Article A', html }));
+  const edit = (block, original, edited, name = 'Tina') => call('PUT', '/api/c/blog-edit-token/edits', {
+    dataset_id: ds, item_key: 'blogs:article:a', block, original_html: original, html: edited, name,
+  });
+
+  let r = await edit(1, 'We offer <strong>free</strong> hearing tests in Singapore.', 'We offer <strong>affordable</strong> hearing tests at City Hall.<script>alert(1)</script>');
+  assert.equal(r.status, 200);
+  assert.equal(r.body.edits.length, 1);
+  assert.doesNotMatch(r.body.edits[0].html, /script/, 'edits are sanitised');
+
+  // The "before" must be text from the article itself.
+  assert.equal((await edit(0, 'Something we never wrote', 'x')).status, 400);
+  assert.equal((await edit(0, 'Free hearing tests', 'x', '')).status, 400, 'a name is required');
+
+  const payload = await call('GET', `/api/c/blog-edit-token/datasets/${ds}`);
+  assert.equal(payload.body.edits[0].block, 1);
+
+  // Editing back to the original wording removes the edit.
+  r = await edit(1, 'We offer <strong>free</strong> hearing tests in Singapore.', 'We offer <strong>free</strong>  hearing tests in Singapore.');
+  assert.equal(r.body.edits.length, 0);
+
+  await edit(0, 'Free hearing tests', 'Affordable hearing tests');
+  r = await call('DELETE', '/api/c/blog-edit-token/edits', { dataset_id: ds, item_key: 'blogs:article:a', block: 0 });
+  assert.equal(r.body.edits.length, 0, 'undo');
+});

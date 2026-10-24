@@ -510,3 +510,17 @@ svg.viz .viz-hit:hover { fill: rgba(23, 33, 58, .04); }
 .home-soon-item { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
 .home-perf { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
 @media (max-width: 760px) { .home-later { grid-template-columns: 1fr; } .home-head .home-actions { width: 100%; } }
+
+/* Direct editing of blog and landing page text, with tracked changes */
+.editable-doc [contenteditable="true"] { border-radius: 6px; outline: none; transition: background .15s, box-shadow .15s; cursor: text; }
+.editable-doc [contenteditable="true"]:hover { background: #f4f7fc; box-shadow: 0 0 0 4px #f4f7fc; }
+.editable-doc [contenteditable="true"]:focus { background: #fff; box-shadow: 0 0 0 2px var(--mint-line), 0 0 0 6px #eef4fd; }
+.editable-doc .edited { box-shadow: -10px 0 0 -7px #2f9e62; }
+.editable-doc .flash { background: #fff6cc !important; box-shadow: 0 0 0 6px #fff6cc !important; }
+ins.ed-ins { background: #d6f3e1; color: #0f5132; text-decoration: none; border-bottom: 2px solid #2f9e62; border-radius: 2px; }
+del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thickness: 1.5px; opacity: .8; user-select: none; }
+.edits-chip { background: #d6f3e1; color: #0f5132; }
+.edit-card { padding: 10px 12px; display: grid; gap: 4px; }
+.edit-diff { border: 1px solid var(--line); border-left: 3px solid #2f9e62; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; background: #fbfdfc; }
+.edit-diff .prose > :first-child { margin-top: 0; }
+.edit-diff .prose > :last-child { margin-bottom: 0; }
