@@ -109,6 +109,9 @@ test('syncs Search Console, GA4 and SEMrush into monthly numbers', async () => {
   assert.equal(kw.start, 101, 'ranking when we started, from the sheet');
   assert.equal(kw.reported, 8);
   assert.equal(kw.reportedLabel, 'Month 1');
+  // Read-only month-by-month report for the Performance view.
+  assert.deepEqual(d.rankingReport.months.map((m) => m.label), ['Month 1']);
+  assert.deepEqual(d.rankingReport.rows[0], { keyword: 'hearing aids', volume: null, start: '>100', months: [{ rank: 8, target: null }], next: null });
   assert.equal(kw.gscBestDate, '2026-10-05');
   const test2 = d.keywords.find((k) => k.keyword === 'hearing test');
   assert.equal(test2.gscPosition, null, 'no data this week');

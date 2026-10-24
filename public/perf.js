@@ -253,6 +253,50 @@ function perfSummary(data) {
   return out;
 }
 
+// Our month-end ranking report for every keyword, read-only, so clients can
+// follow their rankings after the keyword list is approved.
+function rankingReportCard(rep) {
+  if (!rep || !rep.rows.length) return null;
+  const q = h('input', { class: 'input', type: 'search', placeholder: 'Find a keyword…', style: { maxWidth: '220px' } });
+  const hasVol = rep.rows.some((r) => r.volume !== null && r.volume !== '');
+  const hasStart = rep.startLabel && rep.rows.some((r) => r.start !== null && r.start !== '');
+  const last = rep.months.length - 1;
+  const onTarget = (c) => { const top = rangeTop(c.target); const r = rankValue(c.rank); return top !== null && r !== null && r <= top; };
+  const hit = last >= 0 ? rep.rows.filter((r) => onTarget(r.months[last])).length : 0;
+  const tbody = h('tbody');
+  const draw = () => {
+    const term = q.value.trim().toLowerCase();
+    const rows = rep.rows.filter((r) => !term || r.keyword.toLowerCase().includes(term));
+    tbody.replaceChildren(...(rows.length ? rows.map((r) => h('tr', null,
+      h('td', { class: 'primary' }, r.keyword),
+      hasVol ? h('td', { class: 'num' }, r.volume === null || r.volume === '' ? '–' : typeof r.volume === 'number' ? formatNumber(r.volume) : String(r.volume)) : null,
+      hasStart ? h('td', { class: 'nowrap' }, r.start === null || r.start === '' ? h('span', { class: 'muted' }, '–') : rankBadge(r.start)) : null,
+      r.months.map((c) => h('td', { class: 'nowrap' },
+        c.rank === null || c.rank === '' ? h('span', { class: 'muted' }, '–') : rankBadge(c.rank),
+        onTarget(c) ? h('span', { class: 'on-target', title: `Within our projection of ${c.target}` }, '✓ on target') : null,
+        c.target !== null && c.target !== '' ? h('div', { class: 'muted small' }, `target ${c.target}`) : null)),
+      rep.next ? h('td', { class: 'nowrap' }, r.next === null || r.next === '' ? h('span', { class: 'muted' }, '–') : h('span', { class: `range${inTopRange(r.next) ? ' top' : ''}` }, String(r.next))) : null))
+      : [h('tr', null, h('td', { colspan: 99, class: 'muted' }, 'No keywords match.'))]));
+  };
+  q.addEventListener('input', draw);
+  draw();
+  return h('div', { class: 'card card-pad', style: { marginBottom: '16px' } },
+    h('div', { class: 'between', style: { marginBottom: '4px' } },
+      h('h3', { style: { margin: 0 } }, 'Keyword rankings, month by month'), q),
+    h('div', { class: 'muted small', style: { marginBottom: '10px' } },
+      last >= 0
+        ? `From our month-end ranking reports (${rep.name}). In ${rep.months[last].label}, ${hit} of ${rep.rows.length} keywords ranked within or better than our projection (✓ on target).${rep.next ? ' The last column is our projection for the coming months.' : ''}`
+        : `Your ${rep.rows.length} keywords and our projected rankings (${rep.name}). Actual rankings appear here after each month-end report.`),
+    h('div', { class: 'table-wrap', style: { maxHeight: '460px' } }, h('table', { class: 'data' },
+      h('thead', null, h('tr', null,
+        h('th', null, 'Keyword'),
+        hasVol ? h('th', null, 'Search vol.') : null,
+        hasStart ? h('th', null, 'When we started') : null,
+        rep.months.map((m) => h('th', null, `Actual · ${m.label}`)),
+        rep.next ? h('th', { class: 'proj' }, `Projected · ${rep.next.label.replace(/^\s*phase\s*\d+\s*/i, '').replace(/[()]/g, '') || rep.next.label}`) : null)),
+      tbody)));
+}
+
 let perfData = null;
 let perfLoading = null;
 async function loadPerformance(force) {
@@ -384,10 +428,13 @@ async function renderPerformance(root) {
       showLive && data.liveFetchedAt.semrush ? h('div', { class: 'muted small', style: { marginTop: '8px' } }, `SEMrush positions fetched ${timeAgo(data.liveFetchedAt.semrush)}. Tools measure differently, so small differences from Search Console are normal.`) : null);
   }
 
+  const reportTable = rankingReportCard(data.rankingReport);
+
   root.replaceChildren(head,
     data.sample ? h('div', { class: 'chip warn', style: { marginBottom: '12px' } }, 'Sample numbers for this preview. Your real Google data appears once it is connected.') : '',
     summary.length ? h('div', { class: 'card summary' }, h('div', { class: 'summary-label' }, 'Summary'), summary.map((p) => h('p', null, p))) : '',
     rankRow.length ? h('div', { class: 'stats perf-stats' }, rankRow) : '',
+    reportTable || '',
     tiles.length ? h('div', { class: 'stats perf-stats' }, tiles) : '',
     charts.length ? h('div', { class: 'viz-grid' }, charts) : '',
     aeo || '',
