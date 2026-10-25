@@ -51,14 +51,45 @@ function fbByKey() {
   return m;
 }
 
-async function refreshFeedback() {
-  const d = await api('GET', `/api/c/${encodeURIComponent(token)}/feedback`);
+// Feedback, progress and the list of uploads. Uploads the team adds while the
+// page is open (e.g. a second blog document) appear without a reload.
+function applyLatest(d) {
+  const before = S.datasets.map((x) => x.id).join(',');
   S.feedback = d.feedback;
   S.progress = d.progress;
+  if (d.datasets) S.datasets = d.datasets;
+  if (d.contents) S.contents = d.contents;
+  return before !== S.datasets.map((x) => x.id).join(',');
+}
+
+async function refreshFeedback() {
+  const d = await api('GET', `/api/c/${encodeURIComponent(token)}/feedback`);
+  applyLatest(d);
   if (S.view === 'home') { renderHome(document.getElementById('homebody')); return; }
+  if (S.view === 'performance') return;
   renderTabs();
   await renderTabBody(true);
 }
+
+// Check for new uploads when the client comes back to the tab, and every few
+// minutes while it is open, without interrupting someone who is typing.
+let lastCheck = Date.now();
+async function checkForUpdates() {
+  if (document.hidden || Date.now() - lastCheck < 30000) return;
+  const el = document.activeElement;
+  if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) || document.querySelector('.popover, .drawer')) return;
+  lastCheck = Date.now();
+  let d;
+  try { d = await api('GET', `/api/c/${encodeURIComponent(token)}/feedback`); } catch { return; }
+  const added = applyLatest(d);
+  if (!added) return;
+  toast(`${S.agency} has added something new for you to review.`);
+  if (S.view === 'home') renderHome(document.getElementById('homebody'));
+  else if (S.view === 'review') { renderTabs(); renderTabBody(true); }
+}
+document.addEventListener('visibilitychange', checkForUpdates);
+window.addEventListener('focus', checkForUpdates);
+setInterval(checkForUpdates, 3 * 60 * 1000);
 
 async function sendFeedback(item, datasetId, { type, name, comment }, quote, area) {
   await api('POST', `/api/c/${encodeURIComponent(token)}/feedback`, {

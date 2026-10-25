@@ -676,7 +676,12 @@ app.get('/api/c/:token/analytics', (req, res) => {
 
 app.get('/api/c/:token/feedback', (req, res) => {
   const p = projectByToken(req.params.token);
-  res.json({ feedback: listFeedback(p.id), progress: tabProgress(p.id) });
+  res.json({
+    feedback: listFeedback(p.id),
+    progress: tabProgress(p.id),
+    datasets: listDatasets(p.id).map(({ source_file, ...d }) => d),
+    contents: reviewContents(p.id),
+  });
 });
 
 // The client edits a paragraph of a blog or landing page directly. The edit
