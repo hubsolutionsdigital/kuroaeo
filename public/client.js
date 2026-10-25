@@ -1363,7 +1363,9 @@ function renderDoc(payload) {
       h('div', { class: 'row-flex' }, approve(),
         idx < articles.length - 1 ? h('button', { class: 'btn primary', onclick: () => go(articles[idx + 1].item_key) }, `Next ${noun} →`) : null)));
 
-    const threads = threadsOf(fb.get(a.item_key) || []).reverse().map((t) => ({ t }));
+    const mine = [...fb.entries()].filter(([k]) => k === a.item_key || k.startsWith(`${a.item_key}#img`)).flatMap(([, list]) => list)
+      .sort((x, y) => (x.created_at < y.created_at ? -1 : x.created_at > y.created_at ? 1 : x.id - y.id));
+    const threads = threadsOf(mine).reverse().map((t) => ({ t }));
     if (threads.length) feedbackLog(comments, 'Comments and approvals', threads, { key: a.item_key });
   }
 
@@ -1386,8 +1388,9 @@ function openEditGuide(noun = 'article') {
       step(1, 'Click any text to edit it', `Headings, paragraphs, bullet points and table cells can all be changed. Just click and type, or select words and type over them.`),
       step(2, 'Your changes save by themselves', 'There is no save button. Changes are kept a moment after you stop typing, and when you click somewhere else. Your name is added to each change.'),
       step(3, 'See and undo your changes', 'Everything you change is highlighted in the article and listed under “Your changes” on the right. Press Show to find a change, or Undo to put the original words back.'),
-      step(4, 'Ask us instead, if you prefer', 'For bigger changes (a new section, different images, a change of angle), press 💬 Comment or question and tell us what you would like. We will make the change for you.'),
-      step(5, `Approve the ${noun}`, `When you are happy, press ✓ Approve ${noun}. You can approve with your edits; we will update the ${noun} with your wording before it goes live.`)),
+      step(4, 'Images have their own buttons', 'Under each image, press ❤️ Love it, 💬 Comment (for example to ask for a different photo) or ✓ Approve image. Images are approved separately from the text.'),
+      step(5, 'Ask us instead, if you prefer', 'For bigger changes (a new section, different images, a change of angle), press 💬 Comment or question and tell us what you would like. We will make the change for you.'),
+      step(6, `Approve the ${noun}`, `When you are happy, press ✓ Approve ${noun}. You can approve with your edits; we will update the ${noun} with your wording before it goes live.`)),
     example,
     h('div', { class: 'muted small', style: { marginTop: '12px' } }, 'Tips: pasted text comes in as plain words. Press Esc to stop editing. To open a link while editing, hold Ctrl (or ⌘ on a Mac) and click it.'),
   ], [h('button', { class: 'btn primary', onclick: closeDrawer }, 'Got it, start editing')]);
@@ -1405,6 +1408,29 @@ function editBlocks(root) {
     else out.push(el);
   }
   return out;
+}
+
+// Love, approve or comment on one image, separately from the article.
+const imageKey = (article, n) => `${article.item_key}#img${n}`;
+function imageReviewBar(img, payload, article, n) {
+  const item = { item_key: imageKey(article, n), label: `${article.label} · Image${n > 1 ? ` ${n}` : ''}` };
+  const st = itemStatus(fbByKey().get(item.item_key));
+  const alt = (img.getAttribute('alt') || '').trim();
+  const opts = { title: 'What do you think of this image?', quote: `Image: ${alt || `Image ${n}`}`, area: 'Image', types: ['love', 'approve', 'change', 'question'] };
+  const btn = (label, preselect, cls = 'btn sm') => {
+    const b = h('button', { class: cls, type: 'button' }, label);
+    b.addEventListener('click', () => { flushEdits(); feedbackPopover(b, item, payload.dataset.id, { ...opts, preselect, ...(preselect === 'approve' ? { title: 'Approve this image?' } : {}) }); });
+    return b;
+  };
+  const n2 = (fbByKey().get(item.item_key) || []).filter((f) => !f.parent_id).length;
+  return h('div', { class: 'img-review', contenteditable: 'false' },
+    h('div', { class: 'row-flex' }, h('span', { class: 'img-review-label' }, '🖼️ This image'),
+      st.count ? statusChip(st) : null, reactionsRow(st),
+      n2 ? h('button', { class: 'btn ghost sm', type: 'button', onclick: () => openItemDrawer(item, payload.dataset.id) }, `💬 ${n2}`) : null),
+    h('div', { class: 'row-flex' },
+      btn('❤️ Love it', 'love', 'btn sm ghost'),
+      btn('💬 Comment', 'change', 'btn sm ghost'),
+      st.key === 'approved' ? h('span', { class: 'chip home-done' }, '✓ Image approved') : btn('✓ Approve image', 'approve', 'btn sm brand')));
 }
 
 // The edited words without the change highlighting.
@@ -1486,8 +1512,16 @@ function makeEditable(prose, payload, article, { changes, editCount }) {
     toast('Change undone.');
   };
 
+  let imageNo = 0;
   blocks.forEach((el, i) => {
     el.dataset.block = i;
+    if (el.querySelector('img') && !el.textContent.trim()) {
+      imageNo++;
+      el.classList.add('img-block');
+      el.append(imageReviewBar(el.querySelector('img'), payload, article, imageNo));
+      return;
+    }
+    el.querySelectorAll('img').forEach((im) => im.setAttribute('contenteditable', 'false'));
     el.setAttribute('contenteditable', 'true');
     el.spellcheck = true;
     paint(el, i);

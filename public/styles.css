@@ -544,3 +544,8 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .eg-example { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fbfcfe; }
 .eg-example p { margin: 6px 0 8px; font-size: 15px; line-height: 1.6; }
 .eg-label { font-size: 12px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em; }
+
+/* Feedback on an image inside an article */
+.editable-doc .img-block { position: relative; }
+.img-review { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafd; font-size: 13.5px; user-select: none; }
+.img-review-label { font-weight: 700; color: var(--ink-2); }

@@ -197,6 +197,16 @@ test('clients edit blog text directly and the agency sees what changed', async (
   r = await edit(1, 'We offer <strong>free</strong> hearing tests in Singapore.', 'We offer <strong>free</strong>  hearing tests in Singapore.');
   assert.equal(r.body.edits.length, 0);
 
+  // Images have their own feedback, separate from the article's approval.
+  const fb = (item_key, type) => call('POST', '/api/c/blog-edit-token/feedback', { item_key, dataset_id: ds, type, name: 'Tina', quote: 'Image: clinic' });
+  assert.equal((await fb('blogs:article:a#img1', 'love')).status, 200);
+  assert.equal((await fb('blogs:article:a#img1', 'approve')).status, 200);
+  assert.equal((await fb('blogs:article:missing#img1', 'love')).status, 404);
+  const rows = db.prepare("SELECT item_key, item_label FROM feedback WHERE project_id = ? ORDER BY id").all(pid);
+  assert.deepEqual(rows.map((r) => r.item_label), ['Article A · Image', 'Article A · Image']);
+  const prog = await call('GET', '/api/c/blog-edit-token');
+  assert.equal(prog.body.progress.blogs.reviewed, 0, 'approving an image does not approve the article');
+
   await edit(0, 'Free hearing tests', 'Affordable hearing tests');
   r = await call('DELETE', '/api/c/blog-edit-token/edits', { dataset_id: ds, item_key: 'blogs:article:a', block: 0 });
   assert.equal(r.body.edits.length, 0, 'undo');

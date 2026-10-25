@@ -752,14 +752,19 @@ app.post('/api/c/:token/feedback', (req, res) => {
     return res.json({ ok: true });
   }
 
-  const item = db.prepare('SELECT tab, label FROM items WHERE project_id = ? AND item_key = ? ORDER BY id DESC LIMIT 1')
-    .get(p.id, String(b.item_key || ''));
+  // Images in an article have their own feedback: "<article key>#img<n>".
+  const key = String(b.item_key || '');
+  const img = key.match(/^(.+)#img(\d{1,3})$/);
+  const item = img
+    ? db.prepare("SELECT tab, label FROM items WHERE project_id = ? AND item_key = ? AND kind = 'article' ORDER BY id DESC LIMIT 1").get(p.id, img[1])
+    : db.prepare('SELECT tab, label FROM items WHERE project_id = ? AND item_key = ? ORDER BY id DESC LIMIT 1').get(p.id, key);
   if (!item) throw new HttpError(404, 'That item is no longer available.');
+  const label = img ? `${item.label} · Image${img[2] === '1' ? '' : ` ${img[2]}`}`.slice(0, 300) : item.label;
   const datasetId = db.prepare('SELECT id FROM datasets WHERE id = ? AND project_id = ?').get(Number(b.dataset_id) || 0, p.id)?.id ?? null;
   db.prepare(`
     INSERT INTO feedback (project_id, dataset_id, tab, item_key, item_label, type, author_role, name, comment, quote, area, status)
     VALUES (?, ?, ?, ?, ?, ?, 'client', ?, ?, ?, ?, ?)
-  `).run(p.id, datasetId, item.tab, b.item_key, item.label, v.type, v.name, v.comment, v.quote, v.area, NEEDS_ACTION.has(v.type) ? 'open' : 'noted');
+  `).run(p.id, datasetId, item.tab, key, label, v.type, v.name, v.comment, v.quote, v.area, NEEDS_ACTION.has(v.type) ? 'open' : 'noted');
   res.json({ ok: true });
 });
 
