@@ -549,3 +549,13 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .editable-doc .img-block { position: relative; }
 .img-review { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #f8fafd; font-size: 13.5px; user-select: none; }
 .img-review-label { font-weight: 700; color: var(--ink-2); }
+
+/* Thank-you popup after the client submits feedback */
+.thanks-wrap { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; }
+.thanks-backdrop { position: absolute; inset: 0; background: rgba(23, 33, 58, .45); }
+.thanks { position: relative; max-width: 460px; width: 100%; padding: 28px 26px 22px; text-align: center; box-shadow: var(--shadow-pop); animation: thanks-in .18s ease-out; }
+.thanks h2 { margin: 6px 0 8px; font-size: 22px; }
+.thanks p { margin: 0 0 14px; color: var(--ink-2); line-height: 1.55; }
+.thanks-emoji { font-size: 44px; }
+@keyframes thanks-in { from { transform: translateY(8px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .thanks { animation: none; } }

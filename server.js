@@ -7,6 +7,8 @@ const { db, transaction } = require('./lib/db');
 const { parseWorkbook, primaryColumn, normalizeKey, TABS } = require('./lib/excel');
 const { parseBlogDoc, sanitizeEdit, sanitizeIntro, stripTags } = require('./lib/docx');
 const analytics = require('./lib/analytics');
+const alerts = require('./lib/alerts');
+const { sendMail, smtpConfig, emailList } = require('./lib/mailer');
 
 const PORT = Number(process.env.PORT) || 3000;
 const AGENCY_NAME = process.env.AGENCY_NAME || 'Hub Solutions Digital';
@@ -73,6 +75,7 @@ app.post('/api/admin/login', (req, res) => {
   if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
     return res.status(401).json({ error: 'Wrong password.' });
   }
+  alerts.rememberUrl(`${req.protocol}://${req.get('host')}`);
   const exp = Date.now() + 30 * 24 * 3600 * 1000;
   res.cookie('portal_admin', `${exp}.${sign(`admin:${exp}`)}`, {
     httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 30 * 24 * 3600 * 1000, path: '/',
@@ -259,6 +262,7 @@ app.post('/api/admin/projects', requireAdmin, (req, res) => {
   if (!name) throw new HttpError(400, 'Project name is required.');
   const r = db.prepare('INSERT INTO projects (name, client_name, website, token) VALUES (?, ?, ?, ?)')
     .run(name, str(req.body?.client_name, 120), str(req.body?.website, 300), newToken());
+  alerts.stateOf(Number(r.lastInsertRowid));
   res.json({ project: getProject(Number(r.lastInsertRowid)) });
 });
 
@@ -277,11 +281,12 @@ app.patch('/api/admin/projects/:id', requireAdmin, (req, res) => {
   const b = req.body || {};
   const name = b.name !== undefined ? str(b.name, 120) : p.name;
   if (!name) throw new HttpError(400, 'Project name is required.');
-  db.prepare('UPDATE projects SET name = ?, client_name = ?, website = ?, token = ? WHERE id = ?').run(
+  db.prepare('UPDATE projects SET name = ?, client_name = ?, website = ?, token = ?, alert_emails = ? WHERE id = ?').run(
     name,
     b.client_name !== undefined ? str(b.client_name, 120) : p.client_name,
     b.website !== undefined ? str(b.website, 300) : p.website,
     b.regenerate_token ? newToken() : p.token,
+    b.alert_emails !== undefined ? emailList(str(b.alert_emails, 1000)).join(', ') : p.alert_emails,
     p.id,
   );
   res.json({ project: getProject(p.id) });
@@ -644,6 +649,33 @@ app.delete('/api/admin/projects/:id/analytics/metrics', requireAdmin, (req, res)
 
 // ---------- client (link-only access) ----------
 
+// ---------- feedback alerts ----------
+
+app.get('/api/admin/projects/:id/alerts', requireAdmin, (req, res) => {
+  const p = getProject(req.params.id);
+  res.json({
+    emailReady: Boolean(smtpConfig()),
+    projectEmails: p.alert_emails || '',
+    defaultEmails: emailList(process.env.ALERT_EMAIL).join(', '),
+    recipients: alerts.recipients(p),
+    quietMinutes: alerts.QUIET_MINUTES,
+  });
+});
+
+app.post('/api/admin/projects/:id/alerts/test', requireAdmin, async (req, res) => {
+  const p = getProject(req.params.id);
+  const to = alerts.recipients(p);
+  if (!to.length) throw new HttpError(400, 'Add an email address for alerts first.');
+  try {
+    await sendMail({
+      to, fromName: 'Review portal', subject: `Test alert · ${p.name}`,
+      text: `Feedback alerts for ${p.name} are working. You will get one email each time a client submits feedback.`,
+      html: `<p>Feedback alerts for <strong>${p.name.replace(/[<>&]/g, '')}</strong> are working.</p><p>You will get one email each time a client submits feedback.</p>`,
+    });
+  } catch (err) { throw new HttpError(400, err.message); }
+  res.json({ ok: true, to });
+});
+
 function projectByToken(token) {
   const p = db.prepare('SELECT * FROM projects WHERE token = ?').get(String(token));
   if (!p) throw new HttpError(404, 'This review link is not valid. Please ask your account manager for the latest link.');
@@ -672,6 +704,13 @@ app.get('/api/c/:token/datasets/:id', (req, res) => {
 app.get('/api/c/:token/analytics', (req, res) => {
   const p = projectByToken(req.params.token);
   res.json(analytics.dashboard(p.id));
+});
+
+// The client presses "Submit feedback": the team gets this round's summary now.
+app.post('/api/c/:token/submit', async (req, res) => {
+  const p = projectByToken(req.params.token);
+  const r = await alerts.flush(p.id, { submittedBy: str(req.body?.name, 80), force: true });
+  res.json({ ok: true, count: r.count });
 });
 
 app.get('/api/c/:token/feedback', (req, res) => {
@@ -861,6 +900,7 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   app.listen(PORT, () => console.log(`Review portal running on http://localhost:${PORT}`));
   analytics.startScheduler();
+  alerts.startAlerts();
 }
 
 module.exports = app;

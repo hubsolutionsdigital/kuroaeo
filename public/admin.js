@@ -693,7 +693,32 @@ function renderSettings(body) {
     } catch (err) { toast(err.message, true); }
   });
 
-  body.append(form,
+  // Who is emailed when the client submits feedback.
+  const alertsCard = h('div', { class: 'card card-pad', style: { maxWidth: '640px', marginTop: '16px', display: 'grid', gap: '10px' } },
+    h('h3', { style: { margin: 0 } }, '🔔 Feedback alerts'), h('div', { class: 'spinner' }));
+  api('GET', `/api/admin/projects/${p.id}/alerts`).then((a) => {
+    const emails = h('input', { class: 'input', value: a.projectEmails, placeholder: a.defaultEmails || 'you@hubsolutions.one, colleague@hubsolutions.one' });
+    const save = h('button', { class: 'btn primary', type: 'button' }, 'Save');
+    save.addEventListener('click', async () => {
+      try { await api('PATCH', `/api/admin/projects/${p.id}`, { alert_emails: emails.value }); toast('Saved.'); refresh(); } catch (err) { toast(err.message, true); }
+    });
+    const test = h('button', { class: 'btn', type: 'button', disabled: !a.emailReady || !a.recipients.length }, 'Send a test email');
+    test.addEventListener('click', async () => {
+      test.disabled = true;
+      try { const r = await api('POST', `/api/admin/projects/${p.id}/alerts/test`); toast(`Test email sent to ${r.to.join(', ')}.`); } catch (err) { toast(err.message, true); }
+      test.disabled = false;
+    });
+    alertsCard.replaceChildren(
+      h('h3', { style: { margin: 0 } }, '🔔 Feedback alerts'),
+      h('p', { class: 'muted small', style: { margin: 0 } }, `One email per review round, like “Dorothy submitted feedback · ${p.name} (12 comments)”, listing every approval, comment, question and text edit. It is sent when the client presses Submit feedback, or ${a.quietMinutes} minutes after their last comment.`),
+      a.emailReady ? null : h('div', { class: 'small', style: { background: 'var(--amber)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: '10px' } },
+        'Email is not set up yet. In Railway → Variables add ', h('code', null, 'SMTP_HOST'), ' (smtp.zoho.com for Zoho Mail), ', h('code', null, 'SMTP_USER'), ' (the mailbox), ', h('code', null, 'SMTP_PASS'), ' (an app password) and ', h('code', null, 'ALERT_EMAIL'), ' (who gets alerts for every project).'),
+      h('label', { class: 'field' }, `Send alerts for this project to${a.defaultEmails ? ` (leave empty for ${a.defaultEmails})` : ''}`, emails),
+      h('div', { class: 'row-flex' }, save, test,
+        a.recipients.length ? h('span', { class: 'muted small' }, `Alerts go to ${a.recipients.join(', ')}`) : h('span', { class: 'muted small' }, 'No one gets alerts yet.')));
+  }, (err) => alertsCard.replaceChildren(h('div', { class: 'muted small' }, err.message)));
+
+  body.append(form, alertsCard,
     h('div', { class: 'card card-pad', style: { maxWidth: '640px', marginTop: '16px', display: 'grid', gap: '10px' } },
       h('h3', { style: { margin: 0 } }, 'Review link'),
       h('p', { class: 'muted small', style: { margin: 0 } }, 'Anyone with the link can view and comment. If it was shared with the wrong person, make a new one — the old link stops working immediately.'),

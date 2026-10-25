@@ -14,6 +14,8 @@ For any row in a sheet, a client can choose one of these:
 ❤️ **Love it** · 👍 **Like this** · 🎉 **This is great** · ✅ **Approve** · ✏️ **Suggest a change** · ❓ **Ask a question**.
 The client adds their name and an optional comment. Their name is remembered in their browser. The team answers from the admin dashboard, and replies show up on the client's link.
 
+When a client presses **📨 Submit feedback** (or finishes a whole section), they see a thank-you message and the team gets **one summary email** for that round, e.g. *“Dorothy submitted feedback · Dot Chambers (12 comments)”*, listing every approval, comment, question and text edit with a link to the Feedback tab. If the client never presses Submit, the summary is sent 10 minutes after their last comment.
+
 Blogs and landing pages work like a Word document: the client clicks any paragraph, heading, list item or table cell and edits the words directly. Edits save automatically under their name, added words are highlighted and removed words struck through, and each edit can be undone. The team sees every edit as a before-and-after on the Feedback tab (and in the CSV export), and copies the new wording into the next version of the document. Clients approve each article, or leave a comment or question.
 
 ## Run it
@@ -36,6 +38,9 @@ ADMIN_PASSWORD='choose-a-strong-password' npm start
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | OAuth web client for "Connect Google account" (GA4 and Search Console) |
 | `GOOGLE_REDIRECT_URI` | `<this site>/api/admin/google/callback` | Only if the portal sits behind a proxy that changes the host |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | — | Alternative to the above: a service account key (the whole JSON, or base64 of it) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | port `465` | Mailbox that sends feedback alerts (Zoho Mail: `smtp.zoho.com`, port 465, an app password) |
+| `ALERT_EMAIL` | — | Who gets feedback alerts (comma-separated). Each project can override this in Settings |
+| `ALERT_FROM`, `PUBLIC_URL` | `SMTP_USER`, the admin's address | Sender address, and the portal address used for links in alert emails |
 | `SEMRUSH_API_KEY` | — | Optional: daily live rankings from SEMrush |
 
 Docker: `docker build -t review-portal . && docker run -p 3000:3000 -e ADMIN_PASSWORD=… -v portal-data:/data review-portal`.

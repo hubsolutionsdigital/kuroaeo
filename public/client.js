@@ -63,8 +63,12 @@ function applyLatest(d) {
 }
 
 async function refreshFeedback() {
+  const doneBefore = new Set(steps().filter((x) => x.complete).map((x) => x.t));
   const d = await api('GET', `/api/c/${encodeURIComponent(token)}/feedback`);
   applyLatest(d);
+  // Finishing a whole section sends the round to the team and says thank you.
+  const finished = steps().filter((x) => x.complete && !doneBefore.has(x.t));
+  if (finished.length) setTimeout(() => submitFeedback({ finished: finished.map((x) => x.t) }), 300);
   if (S.view === 'home') { renderHome(document.getElementById('homebody')); return; }
   if (S.view === 'performance') return;
   renderTabs();
@@ -96,7 +100,7 @@ async function sendFeedback(item, datasetId, { type, name, comment }, quote, are
     item_key: item.item_key, dataset_id: datasetId, type, name, comment, quote: quote || '', area: area || '',
   });
   setName(name);
-  toast(type === 'approve' ? `Approved — thank you, ${name}!` : `Thanks, ${name}! Your feedback was sent to the team.`);
+  toast(type === 'approve' ? `Approved — thank you, ${name}!` : `Thanks, ${name}! Saved. Press 📨 Submit feedback when you are done.`);
   await refreshFeedback();
 }
 
@@ -169,7 +173,8 @@ function render() {
           h('span', { class: 'muted' }, `Prepared by ${S.agency}`))),
       h('div', { class: 'row-flex' },
         h('button', { class: 'btn', id: 'tour-btn', onclick: () => startTour() }, '❔ How to use'),
-        h('button', { class: 'btn', id: 'all-feedback-btn', onclick: openActivity }, '🗂️ All feedback'))),
+        h('button', { class: 'btn', id: 'all-feedback-btn', onclick: openActivity }, '🗂️ All feedback'),
+        h('button', { class: 'btn primary', id: 'submit-btn', onclick: () => submitFeedback() }, '📨 Submit feedback'))),
     h('div', { class: 'view-switch', role: 'tablist', 'aria-label': 'View' },
       h('button', { role: 'tab', 'data-view': 'home', onclick: () => setView('home') }, '🏠 Home'),
       h('button', { role: 'tab', 'data-view': 'review', onclick: () => setView('review') }, '✅ Review'),
@@ -295,6 +300,45 @@ function renderHome(root) {
       h('button', { class: 'btn', onclick: () => setView('performance') }, 'View performance →')));
 
   root.replaceChildren(welcome, ...ready, later);
+}
+
+/* ---------- submit feedback: tell the team, and thank the client ---------- */
+
+async function submitFeedback({ finished } = {}) {
+  const name = getName() || askName();
+  if (!name) { toast('Please add your name first, so the team knows who reviewed.', true); return; }
+  flushEdits();
+  let count = 0;
+  try {
+    // Give an edit that was just saved a moment to arrive.
+    await new Promise((r) => setTimeout(r, 300));
+    count = (await api('POST', `/api/c/${encodeURIComponent(token)}/submit`, { name })).count;
+  } catch (err) { toast(err.message, true); return; }
+  showThanks({ name, count, finished });
+}
+
+function showThanks({ name, count, finished }) {
+  document.querySelector('.thanks-wrap')?.remove();
+  const first = name.split(' ')[0];
+  const next = steps().find((x) => x.has && !x.complete && !x.locked);
+  const close = () => wrap.remove();
+  const sectionLine = finished && finished.length
+    ? `You have finished reviewing ${finished.map((t) => TAB_META[t].label).join(' and ')}. `
+    : '';
+  const wrap = h('div', { class: 'thanks-wrap', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'thanks-title' },
+    h('div', { class: 'thanks-backdrop', onclick: close }),
+    h('div', { class: 'thanks card' },
+      h('div', { class: 'thanks-emoji', 'aria-hidden': 'true' }, count || finished ? '🎉' : '📝'),
+      h('h2', { id: 'thanks-title' }, count || finished ? `Thank you for your time, ${first}!` : 'Nothing new to send yet'),
+      h('p', null, count || finished
+        ? `${sectionLine}We have received your feedback${count ? ` (${count} ${count === 1 ? 'comment' : 'comments'})` : ''} and let the ${S.agency} team know. We will reply right here on this page, and let you know when there is more to review.`
+        : 'Approve an item, edit some text or leave a comment first, then press Submit feedback and we will let the team know.'),
+      h('div', { class: 'row-flex', style: { justifyContent: 'center', marginTop: '6px' } },
+        next && (count || finished) && S.view !== 'performance' ? h('button', { class: 'btn', onclick: () => { close(); goStep(next.t); } }, `Continue with ${TAB_META[next.t].label} →`) : null,
+        h('button', { class: 'btn primary', onclick: close }, count || finished ? 'Close' : 'OK'))));
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  document.body.append(wrap);
+  wrap.querySelector('.thanks .btn.primary').focus();
 }
 
 /* ---------- review steps ---------- */
@@ -1362,7 +1406,7 @@ function renderDoc(payload) {
       return b;
     };
     const fbBtn = h('button', { class: 'btn' }, '💬 Comment or question');
-    fbBtn.addEventListener('click', () => feedbackPopover(fbBtn, a, dataset.id, { title: `Comment on this ${noun}`, types: ['change', 'question'] }));
+    fbBtn.addEventListener('click', () => feedbackPopover(fbBtn, a, dataset.id, { title: `Comment on this ${noun}`, types: ['change', 'question'], preselect: 'change' }));
     const editCount = h('span');
     main.append(h('div', { class: 'approve-bar' },
       h('div', { class: 'row-flex' }, statusChip(st), editCount,
@@ -1671,6 +1715,11 @@ const TOUR_STEPS = [
       'Press ❔ How to edit beside any article for a short guide.',
       'Confirm the review points in the Overview, then press ✓ Approve when you are happy.',
     ],
+  },
+  {
+    target: '#submit-btn',
+    title: 'Send us your feedback',
+    body: ['Your approvals, comments and edits are saved as you go. When you are done for now, press 📨 Submit feedback and we will let the team know.'],
   },
   {
     title: 'What we need from you',
