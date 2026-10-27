@@ -187,11 +187,41 @@ function rankWins(data) {
   };
 }
 
+// How often the business appears in AI answers, from the ranking sheet's AI
+// columns (latest month per engine).
+function aiWins(rep) {
+  if (!rep || !rep.ai || !rep.ai.length) return [];
+  return rep.ai.map((a, j) => {
+    const places = rep.rows.map((r) => ({ keyword: r.keyword, p: r.ai[j] })).filter((x) => x.p !== null);
+    const first = places.filter((x) => x.p.pos === 1);
+    return {
+      engine: a.engine, label: a.label, total: rep.rows.length, checked: places.length,
+      shown: places.filter((x) => x.p.shown).length, first: first.length, firstExample: first[0] ? first[0].keyword : null,
+    };
+  }).filter((w) => w.checked);
+}
+
 function rankTile(label, value, small, note, up) {
   return h('div', { class: 'stat' },
     h('div', { class: 'k' }, label),
     h('div', { class: 'v' }, value, small ? h('small', null, small) : null),
     note ? h('div', { class: 'stat-deltas' }, h('span', { class: up ? 'delta up' : 'muted' }, note)) : null);
+}
+
+function aiTiles(list) {
+  const tiles = [];
+  const lead = [...list].sort((a, b) => b.first - a.first || b.shown - a.shown)[0];
+  if (lead && lead.first) tiles.push(h('div', { class: 'stat ai-stat' },
+    h('div', { class: 'k' }, `✨ #1 in ${lead.engine}`),
+    h('div', { class: 'v' }, String(lead.first), h('small', null, lead.first === 1 ? 'keyword' : 'keywords')),
+    lead.firstExample ? h('div', { class: 'stat-deltas' }, h('span', { class: 'muted' }, `incl. “${lead.firstExample}”`)) : null));
+  for (const w of list.slice(0, 3)) {
+    tiles.push(h('div', { class: 'stat ai-stat' },
+      h('div', { class: 'k' }, `✨ Shown in ${w.engine}`),
+      h('div', { class: 'v' }, String(w.shown), h('small', null, `of ${w.total} keywords`)),
+      h('div', { class: 'stat-deltas' }, h('span', { class: 'muted' }, w.label))));
+  }
+  return tiles;
 }
 
 function rankTiles(w) {
@@ -229,6 +259,13 @@ function perfSummary(data) {
     }
     out.push(`${t}.`);
   }
+  const aiAnswers = aiWins(data.rankingReport);
+  const lead = [...aiAnswers].sort((a, b) => b.first - a.first || b.shown - a.shown)[0];
+  if (lead && lead.shown) {
+    out.push(lead.first
+      ? `In ${lead.engine}, you are the first business named for ${lead.first} ${lead.first === 1 ? 'keyword' : 'keywords'}${lead.firstExample ? `, including “${lead.firstExample}”` : ''}, and you appear for ${lead.shown} of ${lead.total} keywords we track.`
+      : `You appear in ${lead.engine} for ${lead.shown} of the ${lead.total} keywords we track.`);
+  }
   const s = growth(ga4.organic_sessions);
   const k = growth(ga4.organic_key_events);
   if (s || k) {
@@ -253,6 +290,14 @@ function perfSummary(data) {
   return out;
 }
 
+// Place in an AI answer: #1 (named first), Shown (named, place not noted), or –.
+function aiBadge(p) {
+  if (!p) return h('span', { class: 'muted' }, '–');
+  if (!p.shown) return h('span', { class: 'muted small' }, 'Not shown');
+  return p.pos ? h('span', { class: `ai-badge${p.pos === 1 ? ' first' : ''}`, title: p.pos === 1 ? 'Named first in the AI answer' : `Named in position ${p.pos}` }, `#${p.pos}`)
+    : h('span', { class: 'ai-badge', title: 'Named in the AI answer' }, '✓ Shown');
+}
+
 // Our month-end ranking report for every keyword, read-only, so clients can
 // follow their rankings after the keyword list is approved.
 function rankingReportCard(rep) {
@@ -275,7 +320,8 @@ function rankingReportCard(rep) {
         c.rank === null || c.rank === '' ? h('span', { class: 'muted' }, '–') : rankBadge(c.rank),
         onTarget(c) ? h('span', { class: 'on-target', title: `Within our projection of ${c.target}` }, '✓ on target') : null,
         c.target !== null && c.target !== '' ? h('div', { class: 'muted small' }, `target ${c.target}`) : null)),
-      rep.next ? h('td', { class: 'nowrap' }, r.next === null || r.next === '' ? h('span', { class: 'muted' }, '–') : h('span', { class: `range${inTopRange(r.next) ? ' top' : ''}` }, String(r.next))) : null))
+      rep.next ? h('td', { class: 'nowrap' }, r.next === null || r.next === '' ? h('span', { class: 'muted' }, '–') : h('span', { class: `range${inTopRange(r.next) ? ' top' : ''}` }, String(r.next))) : null,
+      (rep.ai || []).map((a, j) => h('td', { class: 'nowrap' }, aiBadge(r.ai[j])))))
       : [h('tr', null, h('td', { colspan: 99, class: 'muted' }, 'No keywords match.'))]));
   };
   q.addEventListener('input', draw);
@@ -285,7 +331,7 @@ function rankingReportCard(rep) {
       h('h3', { style: { margin: 0 } }, 'Keyword rankings, month by month'), q),
     h('div', { class: 'muted small', style: { marginBottom: '10px' } },
       last >= 0
-        ? `From our month-end ranking reports (${rep.name}). In ${rep.months[last].label}, ${hit} of ${rep.rows.length} keywords ranked within or better than our projection (✓ on target).${rep.next ? ' The last column is our projection for the coming months.' : ''}`
+        ? `From our month-end ranking reports (${rep.name}). In ${rep.months[last].label}, ${hit} of ${rep.rows.length} keywords ranked within or better than our projection (✓ on target).${rep.next ? ' “Projected” is our projection for the coming months.' : ''}${(rep.ai || []).length ? ' ✨ columns show where you are named in AI answers (#1 = named first).' : ''}`
         : `Your ${rep.rows.length} keywords and our projected rankings (${rep.name}). Actual rankings appear here after each month-end report.`),
     h('div', { class: 'table-wrap', style: { maxHeight: '460px' } }, h('table', { class: 'data' },
       h('thead', null, h('tr', null,
@@ -293,7 +339,8 @@ function rankingReportCard(rep) {
         hasVol ? h('th', null, 'Search vol.') : null,
         hasStart ? h('th', null, 'When we started') : null,
         rep.months.map((m) => h('th', null, `Actual · ${m.label}`)),
-        rep.next ? h('th', { class: 'proj' }, `Projected · ${rep.next.label.replace(/^\s*phase\s*\d+\s*/i, '').replace(/[()]/g, '') || rep.next.label}`) : null)),
+        rep.next ? h('th', { class: 'proj' }, `Projected · ${rep.next.label.replace(/^\s*phase\s*\d+\s*/i, '').replace(/[()]/g, '') || rep.next.label}`) : null,
+        (rep.ai || []).map((a) => h('th', { class: 'ai-th' }, `✨ ${a.engine} · ${a.label}`)))),
       tbody)));
 }
 
@@ -336,7 +383,7 @@ async function renderPerformance(root) {
     })() : null);
 
   const summary = perfSummary(data);
-  const rankRow = rankTiles(rankWins(data));
+  const rankRow = [...rankTiles(rankWins(data)), ...aiTiles(aiWins(data.rankingReport))];
   const tiles = [
     stat('Clicks from Google', growth(gsc.clicks)),
     stat('Organic visits', growth(ga4.organic_sessions)),

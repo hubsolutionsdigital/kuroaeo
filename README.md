@@ -9,6 +9,7 @@ A review portal for SEO/AEO client work. The team uploads Excel sheets and blog 
 | 🔗 Backlinks | Backlink opportunities |
 | 💬 Prompts | AI search prompts (AEO) |
 | ✍️ Blogs | Blog articles from Word documents, plus article plans from Excel |
+| ✨ AI rankings | Columns in the keyword sheet such as *AI Overview (Month 4)*, *AI Mode*, *ChatGPT*, *Gemini*, *Perplexity* or *Copilot* (1 = named first, Yes = shown, blank/No = not shown) appear on Performance as AI tiles and table columns |
 | 📍 GBP Posts | Google Business Profile posts from Word documents (“POST 1 · title”, image, copy, CTA and landing page) |
 
 For any row in a sheet, a client can choose one of these:

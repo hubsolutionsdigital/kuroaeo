@@ -323,7 +323,8 @@ function renderUpload(body) {
     h('h3', { style: { marginTop: 0 } }, '📊 Excel workbook'),
     h('p', { class: 'muted small', style: { marginTop: 0 } },
       'Keyword lists, ranking reports, on-page SEO, backlinks, prompts and article plans. Every sheet is detected and you choose which tab it goes to. ',
-      'Upload the updated ranking sheet each month with the same name — it becomes a new report month and the client sees movement.'),
+      'Upload the updated ranking sheet each month with the same name — it becomes a new report month and the client sees movement. ',
+      'For AI rankings, add columns such as “AI Overview (Month 4)”, “AI Mode (Month 4)” or “ChatGPT (Month 4)”: 1 = named first, 2, 3… = position, Yes = shown, blank or No = not shown.'),
     excelArea,
     h('div', { class: 'or-line' }, h('span', null, 'or')),
     googleSheetPicker(p, 'upload', async (fileId) => {

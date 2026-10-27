@@ -111,7 +111,7 @@ test('syncs Search Console, GA4 and SEMrush into monthly numbers', async () => {
   assert.equal(kw.reportedLabel, 'Month 1');
   // Read-only month-by-month report for the Performance view.
   assert.deepEqual(d.rankingReport.months.map((m) => m.label), ['Month 1']);
-  assert.deepEqual(d.rankingReport.rows[0], { keyword: 'hearing aids', volume: null, start: '>100', months: [{ rank: 8, target: null }], next: null });
+  assert.deepEqual(d.rankingReport.rows[0], { keyword: 'hearing aids', volume: null, start: '>100', months: [{ rank: 8, target: null }], next: null, ai: [] });
   assert.equal(kw.gscBestDate, '2026-10-05');
   const test2 = d.keywords.find((k) => k.keyword === 'hearing test');
   assert.equal(test2.gscPosition, null, 'no data this week');
@@ -222,4 +222,21 @@ test('reads Google data through a connected Google account instead of a key', as
   assert.equal(grants.at(-1), 'revoke');
   await assert.rejects(analytics.listSpreadsheets('', fakeFetch), /Connect your Google account/);
   assert.equal(analytics.googleIdentity().mode, 'service', 'falls back to the service account');
+});
+
+test('reads AI answer rankings from the keyword sheet', () => {
+  const pid = project();
+  const ds = Number(db.prepare("INSERT INTO datasets (project_id, tab, name, kind, columns) VALUES (?, 'keywords', 'Keywords', 'table', ?)")
+    .run(pid, JSON.stringify(['Keyword', 'Actual Ranking (Month 1)', 'AI Overview (Month 1)', 'AI Overview (Month 2)', 'ChatGPT Mentioned', 'AI Overview notes'])).lastInsertRowid);
+  const ins = db.prepare("INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, 'keywords', 'row', ?, ?, ?, ?)");
+  ins.run(ds, pid, 'keywords:hearing aid specialist', 'hearing aid specialist', 0, JSON.stringify(['hearing aid specialist', 6, 3, '#1', 'Yes', 'first in the list']));
+  ins.run(ds, pid, 'keywords:hearing aids', 'hearing aids', 1, JSON.stringify(['hearing aids', 30, 'No', 4, 'no', '']));
+  ins.run(ds, pid, 'keywords:ear wax', 'ear wax', 2, JSON.stringify(['ear wax', '>100', '', '', '', '']));
+  const rep = analytics.dashboard(pid).rankingReport;
+  assert.deepEqual(rep.ai, [{ engine: 'Google AI Overview', label: 'Month 2' }, { engine: 'ChatGPT', label: 'Latest' }], 'latest month per engine, notes ignored');
+  assert.deepEqual(rep.rows.map((r) => r.ai), [
+    [{ shown: true, pos: 1 }, { shown: true, pos: null }],
+    [{ shown: true, pos: 4 }, { shown: false, pos: null }],
+    [null, null],
+  ]);
 });

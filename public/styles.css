@@ -559,3 +559,10 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .thanks-emoji { font-size: 44px; }
 @keyframes thanks-in { from { transform: translateY(8px) scale(.98); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .thanks { animation: none; } }
+
+/* AI answer rankings (Google AI Overview, ChatGPT…) */
+.ai-stat { background: linear-gradient(180deg, #f6f3ff, #fff 70%); border-color: #e2dbfb; }
+.ai-stat .k { color: #5b45a8; }
+.ai-badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 13px; font-weight: 700; background: #ece7fd; color: #4b3794; white-space: nowrap; }
+.ai-badge.first { background: #5b45a8; color: #fff; }
+table.data th.ai-th { color: #5b45a8; }
