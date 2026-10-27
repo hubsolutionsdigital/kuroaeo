@@ -240,3 +240,53 @@ test('reads AI answer rankings from the keyword sheet', () => {
     [null, null],
   ]);
 });
+
+test('checks Google AI Overview and the exact position with DataForSEO', async () => {
+  process.env.DATAFORSEO_LOGIN = 'me@agency.test';
+  process.env.DATAFORSEO_PASSWORD = 'pw';
+  const pid = project();
+  const ds = Number(db.prepare("INSERT INTO datasets (project_id, tab, name, kind, columns) VALUES (?, 'keywords', 'Keywords', 'table', ?)")
+    .run(pid, JSON.stringify(['Keyword', 'Actual Ranking (Month 1)', 'AI Overview (Month 1)'])).lastInsertRowid);
+  const ins = db.prepare("INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, 'keywords', 'row', ?, ?, ?, ?)");
+  ins.run(ds, pid, 'keywords:hearing aid specialist', 'hearing aid specialist', 0, JSON.stringify(['hearing aid specialist', 9, 'No']));
+  ins.run(ds, pid, 'keywords:hearing aids', 'hearing aids', 1, JSON.stringify(['hearing aids', 30, '']));
+  analytics.saveSettings(pid, { dataforseo: { enabled: true, domain: 'https://www.thehearingroom.com.sg/', brand: 'The Hearing Room', location: 'Singapore' } });
+
+  const bodies = [];
+  const serp = {
+    'hearing aid specialist': [
+      { type: 'ai_overview', items: [{ type: 'ai_overview_element', text: 'A hearing aid specialist tests hearing…',
+        references: [{ source: 'Google Maps', domain: 'www.google.com', title: 'The Hearing Room', url: 'https://maps.google.com/?cid=1' }, { domain: 'thehearingcentre.sg', title: 'The Hearing Centre' }] }],
+        references: [{ domain: 'thehearingcentre.sg', title: 'The Hearing Centre' }] },
+      { type: 'organic', rank_group: 1, domain: 'thehearingcentre.sg', url: 'https://thehearingcentre.sg/' },
+      { type: 'organic', rank_group: 4, domain: 'www.thehearingroom.com.sg', url: 'https://www.thehearingroom.com.sg/hearing-aids/' },
+    ],
+    'hearing aids': [{ type: 'organic', rank_group: 1, domain: 'other.sg', url: 'https://other.sg/' }],
+  };
+  const fakeFetch = async (url, opts) => {
+    assert.equal(url, 'https://api.dataforseo.com/v3/serp/google/organic/live/advanced');
+    assert.equal(opts.headers.Authorization, `Basic ${Buffer.from('me@agency.test:pw').toString('base64')}`);
+    const [task] = JSON.parse(opts.body);
+    bodies.push(task);
+    return { ok: true, status: 200, json: async () => ({ status_code: 20000, tasks: [{ status_code: 20000, cost: 0.0026, result: [{ items: serp[task.keyword] }] }] }) };
+  };
+  const r = await analytics.syncProject(pid, { only: 'dataforseo', fetchImpl: fakeFetch });
+  assert.deepEqual(r.errors, []);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0].location_name, 'Singapore');
+  assert.equal(bodies[0].load_async_ai_overview, true);
+
+  const d = analytics.dashboard(pid);
+  assert.equal(d.sources.dataforseo, true);
+  const specialist = d.keywords.find((k) => k.keyword === 'hearing aid specialist');
+  assert.equal(specialist.livePosition, 4);
+  // The live check replaces the sheet's AI Overview column: named first (via Google Maps).
+  assert.match(d.rankingReport.ai[0].label, /^Checked /);
+  assert.deepEqual(d.rankingReport.rows.map((x) => x.ai[0]), [{ shown: true, pos: 1 }, { shown: false, pos: null }]);
+  assert.equal(analytics.getSettings(pid).dataforseo.lastCount, 2);
+
+  // Not due again for a week.
+  bodies.length = 0;
+  await analytics.syncProject(pid, { fetchImpl: fakeFetch });
+  assert.equal(bodies.length, 0);
+});

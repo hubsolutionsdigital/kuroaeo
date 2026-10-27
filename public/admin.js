@@ -443,10 +443,19 @@ async function renderPerformanceAdmin(body) {
   const semDb = h('select', { class: 'select', id: 'pf-sem-db' }, [['sg', 'Singapore'], ['my', 'Malaysia'], ['au', 'Australia'], ['uk', 'United Kingdom'], ['us', 'United States'], ['hk', 'Hong Kong']]
     .map(([v, l]) => h('option', { value: v, selected: (sem.database || 'sg') === v }, l)));
 
+  const dfs = data.dashboard.dataforseo || {};
+  const dfsOn = h('input', { type: 'checkbox', id: 'pf-dfs-on', checked: Boolean(dfs.enabled) });
+  const dfsDomain = h('input', { class: 'input', value: dfs.domain || (p.website || '').replace(/^https?:\/\//, '').replace(/\/.*$/, ''), placeholder: 'thehearingroom.com.sg' });
+  const dfsBrand = h('input', { class: 'input', value: dfs.brand || p.client_name || p.name, placeholder: 'The Hearing Room' });
+  const dfsFreq = h('select', { class: 'select' }, [['weekly', 'Every week'], ['daily', 'Every day']].map(([v, l]) => h('option', { value: v, selected: (dfs.frequency || 'weekly') === v }, l)));
+  const dfsDevice = h('select', { class: 'select' }, [['desktop', 'Desktop'], ['mobile', 'Mobile']].map(([v, l]) => h('option', { value: v, selected: (dfs.device || 'desktop') === v }, l)));
+  const dfsLocation = h('input', { class: 'input', value: dfs.location || 'Singapore', placeholder: 'Singapore' });
+
   const save = async () => {
     await api('PUT', `/api/admin/projects/${p.id}/analytics`, {
       ga4Property: ga4.value, gscSite: gsc.value, start: start.value, country: country.value,
       semrush: { enabled: semOn.checked, clientToggle: semClient.checked, domain: semDomain.value, database: semDb.value },
+      dataforseo: { enabled: dfsOn.checked, domain: dfsDomain.value, brand: dfsBrand.value, frequency: dfsFreq.value, device: dfsDevice.value, location: dfsLocation.value },
     });
   };
   const sync = async (btn, only) => {
@@ -536,6 +545,33 @@ async function renderPerformanceAdmin(body) {
       s.lastSync ? h('span', { class: 'muted small' }, `Last synced ${timeAgo(s.lastSync.replace('T', ' ').slice(0, 19))}. Data refreshes daily.`) : null),
     (s.lastErrors || []).length ? h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, s.lastErrors.join(' · ')) : null);
 
+  const dfsBtn = h('button', { class: 'btn' }, '↻ Check now');
+  dfsBtn.addEventListener('click', () => sync(dfsBtn, 'dataforseo'));
+  const estimate = h('span', { class: 'muted small' });
+  const updateEstimate = () => {
+    const runs = dfsFreq.value === 'daily' ? 30 : 4.3;
+    const monthly = (dfs.keywords || 0) * runs * (dfs.costPerCheck || 0.0026);
+    estimate.textContent = dfs.keywords
+      ? `${dfs.keywords} keywords × ${dfsFreq.value === 'daily' ? 'every day' : 'every week'} ≈ US$${monthly < 1 ? monthly.toFixed(2) : monthly.toFixed(1)} a month.`
+      : 'Upload the keyword sheet first: every keyword in it is checked.';
+  };
+  dfsFreq.addEventListener('change', updateEstimate);
+  updateEstimate();
+  const dfsCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
+    h('h3', { style: { margin: 0 } }, '✨ Google AI Overview & live rankings (DataForSEO)'),
+    h('p', { class: 'muted small', style: { margin: 0 } }, 'Checks Google for every tracked keyword: whether the business is named in the AI Overview (and in which place), and the exact position of the website. Clients see it as “✨ Google AI Overview” on their Performance page, replacing the AI Overview column in the ranking sheet.'),
+    dfs.configured ? null : h('div', { class: 'small', style: { background: 'var(--amber)', color: 'var(--amber-ink)', padding: '10px 12px', borderRadius: '10px' } },
+      'Create an account at dataforseo.com (US$50 minimum top-up, lasts a long time at this volume), then add ', h('code', null, 'DATAFORSEO_LOGIN'), ' and ', h('code', null, 'DATAFORSEO_PASSWORD'), ' (the API password from the dashboard) in Railway → Variables.'),
+    h('div', { class: 'two-col' },
+      h('label', { class: 'field' }, 'Website domain (to find in Google)', dfsDomain),
+      h('label', { class: 'field' }, 'Business name (as it appears on Google)', dfsBrand),
+      h('label', { class: 'field' }, 'How often', dfsFreq),
+      h('label', { class: 'field' }, 'Searches from', dfsLocation),
+      h('label', { class: 'field' }, 'Device', dfsDevice)),
+    h('label', { class: 'row-flex small' }, dfsOn, 'Check this project’s keywords automatically'),
+    h('div', { class: 'row-flex' }, dfsBtn, estimate),
+    dfs.lastRun ? h('div', { class: 'muted small' }, `Last checked ${timeAgo(dfs.lastRun.replace('T', ' ').slice(0, 19))}: ${dfs.lastCount} keywords for US$${dfs.lastCost}.`) : null);
+
   const semCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
     h('h3', { style: { margin: 0 } }, '📡 Live rankings (SEMrush), optional'),
     h('p', { class: 'muted small', style: { margin: 0 } }, 'Daily positions from SEMrush, so clients can check our numbers against a tool they know. Clients see a “Live rankings” switch that is off by default, so nobody is overwhelmed.'),
@@ -591,7 +627,7 @@ async function renderPerformanceAdmin(body) {
     h('div', { class: 'between' },
       h('p', { class: 'muted', style: { margin: 0 } }, 'Connect the client’s data to show how the SEO and AEO work is growing their business.'),
       h('a', { class: 'btn', href: `${clientUrl(p)}#performance`, target: '_blank', rel: 'noopener' }, 'View client dashboard ↗')),
-    googleCard, semCard, dataCard));
+    googleCard, dfsCard, semCard, dataCard));
 }
 
 /* ---------- feedback inbox ---------- */

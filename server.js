@@ -606,6 +606,15 @@ app.put('/api/admin/projects/:id/analytics', requireAdmin, (req, res) => {
     gscSite: str(b.gscSite, 200),
     start: start || null,
     country: ['', 'sgp', 'mys', 'aus', 'gbr', 'usa', 'hkg'].includes(b.country) ? b.country : 'sgp',
+    dataforseo: {
+      ...(cur.dataforseo || {}),
+      enabled: Boolean(b.dataforseo && b.dataforseo.enabled),
+      frequency: b.dataforseo && b.dataforseo.frequency === 'daily' ? 'daily' : 'weekly',
+      domain: str(b.dataforseo && b.dataforseo.domain, 200),
+      brand: str(b.dataforseo && b.dataforseo.brand, 120),
+      location: str(b.dataforseo && b.dataforseo.location, 80) || 'Singapore',
+      device: b.dataforseo && b.dataforseo.device === 'mobile' ? 'mobile' : 'desktop',
+    },
     semrush: {
       enabled: Boolean(b.semrush && b.semrush.enabled),
       clientToggle: Boolean(b.semrush && b.semrush.clientToggle),

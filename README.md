@@ -43,6 +43,7 @@ ADMIN_PASSWORD='choose-a-strong-password' npm start
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | port `465` | Mailbox that sends feedback alerts (Zoho Mail: `smtp.zoho.com`, port 465, an app password) |
 | `ALERT_EMAIL` | — | Who gets feedback alerts (comma-separated). Each project can override this in Settings |
 | `ALERT_FROM`, `PUBLIC_URL` | `SMTP_USER`, the admin's address | Sender address, and the portal address used for links in alert emails |
+| `DATAFORSEO_LOGIN`, `DATAFORSEO_PASSWORD` | — | Optional: weekly or daily live Google checks per keyword: Google AI Overview (named, and in which place) and the exact position (about US$0.0026 per keyword check) |
 | `SEMRUSH_API_KEY` | — | Optional: daily live rankings from SEMrush |
 
 Docker: `docker build -t review-portal . && docker run -p 3000:3000 -e ADMIN_PASSWORD=… -v portal-data:/data review-portal`.
