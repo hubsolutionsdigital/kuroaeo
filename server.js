@@ -225,7 +225,7 @@ function importSheet(projectId, sheet, { tab, name, period, phase, source }) {
 }
 
 // Word documents for review: blog articles or landing pages, one section per page.
-const DOC_TABS = ['blogs', 'landing'];
+const DOC_TABS = ['blogs', 'gbp', 'landing'];
 
 function importBlogDoc(projectId, doc, { tab = 'blogs', name, period, phase, source }) {
   const datasetId = insertDataset(projectId, {

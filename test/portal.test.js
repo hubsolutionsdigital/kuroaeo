@@ -211,3 +211,27 @@ test('clients edit blog text directly and the agency sees what changed', async (
   r = await call('DELETE', '/api/c/blog-edit-token/edits', { dataset_id: ds, item_key: 'blogs:article:a', block: 0 });
   assert.equal(r.body.edits.length, 0, 'undo');
 });
+
+test('reads Google Business Profile posts: "POST 1 · title", a repeated banner and a CTA table', async () => {
+  const JSZip = require('jszip');
+  const { parseBlogDoc } = require('../lib/docx');
+  const p = (text, bold) => `<w:p><w:r>${bold ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+  const cell = (text) => `<w:tc><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:tc>`;
+  const cta = (url) => `<w:tbl><w:tr>${cell('CTA')}${cell('Learn More')}</w:tr><w:tr>${cell('Landing page')}${cell(url)}</w:tr></w:tbl>`;
+  const post = (n, title) => [
+    p('DOT CHAMBERS LLC  |  GOOGLE BUSINESS PROFILE', true),
+    p(`POST ${n}  ·  ${title}`),
+    p('GOOGLE BUSINESS PROFILE POST COPY', true),
+    p(`Copy for ${title}.`),
+    cta('https://www.dotchambers.com/divorce'),
+  ].join('');
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${post(1, 'Affordable Divorce Lawyer in Singapore')}${post(2, 'Divorce Legal Advice in Singapore')}</w:body></w:document>`);
+  const doc = await parseBlogDoc(await zip.generateAsync({ type: 'nodebuffer' }), 'GBP Posts.docx');
+  assert.deepEqual(doc.articles.map((a) => [a.number, a.title]), [[1, 'Affordable Divorce Lawyer in Singapore'], [2, 'Divorce Legal Advice in Singapore']]);
+  assert.deepEqual(doc.articles[0].seo, [['CTA', 'Learn More'], ['Landing page', 'https://www.dotchambers.com/divorce']]);
+  assert.notEqual(doc.articles[0].key, doc.articles[1].key, 'posts sharing a landing page keep their own keys');
+  for (const a of doc.articles) assert.doesNotMatch(a.html, /GOOGLE BUSINESS PROFILE|<table/, 'banner, label and CTA table are not in the copy');
+});

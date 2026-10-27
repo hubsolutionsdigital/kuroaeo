@@ -9,6 +9,7 @@ A review portal for SEO/AEO client work. The team uploads Excel sheets and blog 
 | 🔗 Backlinks | Backlink opportunities |
 | 💬 Prompts | AI search prompts (AEO) |
 | ✍️ Blogs | Blog articles from Word documents, plus article plans from Excel |
+| 📍 GBP Posts | Google Business Profile posts from Word documents (“POST 1 · title”, image, copy, CTA and landing page) |
 
 For any row in a sheet, a client can choose one of these:
 ❤️ **Love it** · 👍 **Like this** · 🎉 **This is great** · ✅ **Approve** · ✏️ **Suggest a change** · ❓ **Ask a question**.
@@ -16,7 +17,7 @@ The client adds their name and an optional comment. Their name is remembered in 
 
 When a client presses **📨 Submit feedback** (or finishes a whole section), they see a thank-you message and the team gets **one summary email** for that round, e.g. *“Dorothy submitted feedback · Dot Chambers (12 comments)”*, listing every approval, comment, question and text edit with a link to the Feedback tab. If the client never presses Submit, the summary is sent 10 minutes after their last comment.
 
-Blogs and landing pages work like a Word document: the client clicks any paragraph, heading, list item or table cell and edits the words directly. Edits save automatically under their name, added words are highlighted and removed words struck through, and each edit can be undone. The team sees every edit as a before-and-after on the Feedback tab (and in the CSV export), and copies the new wording into the next version of the document. Clients approve each article, or leave a comment or question.
+Blogs, GBP posts and landing pages work like a Word document: the client clicks any paragraph, heading, list item or table cell and edits the words directly. Edits save automatically under their name, added words are highlighted and removed words struck through, and each edit can be undone. The team sees every edit as a before-and-after on the Feedback tab (and in the CSV export), and copies the new wording into the next version of the document. Clients approve each article, or leave a comment or question.
 
 ## Run it
 

@@ -197,7 +197,7 @@ function datasetRow(d, p) {
     const period = h('input', { class: 'input', value: d.period, placeholder: 'e.g. Oct 2026' });
     const phase = phaseSelect(d.phase);
     // Word documents can move between Blogs and Landing Pages; sheets can go to any tab.
-    const tabChoices = d.kind === 'doc' ? ['blogs', 'landing'] : TAB_ORDER;
+    const tabChoices = d.kind === 'doc' ? ['blogs', 'gbp', 'landing'] : TAB_ORDER;
     const tab = h('select', { class: 'select' }, tabChoices.map((t) => h('option', { value: t, selected: t === d.tab }, TAB_META[t].label)));
     tr.replaceChildren(
       h('td', null, name), h('td', null, period), h('td', null, phase), h('td', { colspan: 3 }, tab),
@@ -388,7 +388,7 @@ function renderUpload(body) {
   const docName = h('input', { class: 'input', placeholder: 'Name shown to client (defaults to the document title)' });
   const docPhase = phaseSelect('');
   const docTab = h('select', { class: 'select', 'aria-label': 'Section', style: { width: 'auto' } },
-    h('option', { value: 'blogs' }, '✍️ Blogs'), h('option', { value: 'landing' }, '🧭 Landing Pages'));
+    h('option', { value: 'blogs' }, '✍️ Blogs'), h('option', { value: 'gbp' }, '📍 GBP Posts'), h('option', { value: 'landing' }, '🧭 Landing Pages'));
   const showDocDrop = () => docArea.replaceChildren(dropzone('.docx', 'Drop a .docx file or click to choose', 'Same format as “Blog Articles for Review”.', async (file) => {
     docArea.replaceChildren(h('div', { class: 'spinner' }));
     const fd = new FormData();
@@ -399,16 +399,16 @@ function renderUpload(body) {
     fd.append('name', docName.value);
     try {
       const r = await api('POST', `/api/admin/projects/${p.id}/docx`, fd);
-      const noun = docTab.value === 'landing' ? 'landing page' : 'article';
+      const noun = TAB_META[docTab.value].noun;
       toast(`Uploaded ${r.articles} ${r.articles === 1 ? noun : `${noun}s`}${r.checks ? ` and ${r.checks} review points` : ''}.`);
       location.hash = `#/project/${p.id}/content`;
     } catch (err) { toast(err.message, true); showDocDrop(); }
   }));
   showDocDrop();
   const doc = h('div', { class: 'card card-pad' },
-    h('h3', { style: { marginTop: 0 } }, '✍️ Blogs & 🧭 Landing Pages (Word)'),
+    h('h3', { style: { marginTop: 0 } }, '✍️ Blogs, 📍 GBP Posts & 🧭 Landing Pages (Word)'),
     h('p', { class: 'muted small', style: { marginTop: 0 } },
-      'Choose the section, then upload. Each “Article 1: …” or “Landing Page 1: …” heading becomes its own page with its SEO details table. ',
+      'Choose the section, then upload. Each “Article 1: …”, “Post 1 · …” or “Landing Page 1: …” heading (or numbered heading) becomes its own page with its SEO or post details. ',
       '“For your review” checkbox items (☐) become points the client confirms one by one. Images and keyword highlights are kept.'),
     h('div', { class: 'two-col', style: { marginBottom: '12px' } }, docName, h('div', { class: 'row-flex', style: { flexWrap: 'nowrap' } }, docTab, period, docPhase)),
     docArea);

@@ -213,6 +213,7 @@ const STEP_ABOUT = {
   prompts: 'The questions people ask AI assistants such as ChatGPT and Gemini that we want your business to appear in.',
   backlinks: 'Websites we plan to get links to your site from, which builds Google’s trust in your website.',
   blogs: 'Articles written for your website. Read each one, comment on any paragraph, then approve it.',
+  gbp: 'Posts for your Google Business Profile, the listing people see on Google Search and Maps. Edit the wording, check the image and approve each post.',
   landing: 'Pages written to turn visitors into enquiries. Read each one, comment on any part, then approve it.',
 };
 
@@ -241,7 +242,7 @@ function renderHome(root) {
     h('div', null,
       h('h2', null, `${name ? `Hi ${name.split(' ')[0]}, here` : 'Here'} is what is ready for your review`),
       h('p', { class: 'muted' }, totals.items
-        ? `${totals.items} items across ${list.filter((x) => x.has).length} sections. You have reviewed ${totals.reviewed} so far. Work through the sections in order, or jump to any blog or landing page below.`
+        ? `${totals.items} items across ${list.filter((x) => x.has).length} sections. You have reviewed ${totals.reviewed} so far. Work through the sections in order, or jump to any blog, post or landing page below.`
         : `${S.agency} will add your keywords and content here soon.`),
       totals.items ? h('div', { class: 'home-progress' },
         h('div', { class: 'meter', role: 'img', 'aria-label': `${pct}% reviewed` }, h('div', { style: { width: `${pct}%` } })),
@@ -353,7 +354,7 @@ function stepInfo(t) {
 
 // Blogs often have their own approver, so they are never locked and never
 // hold up the other steps.
-const INDEPENDENT_STEPS = new Set(['blogs', 'landing']);
+const INDEPENDENT_STEPS = new Set(['blogs', 'gbp', 'landing']);
 // Shown on steps that have nothing uploaded yet.
 const COMING = { prompts: 'Coming soon', backlinks: 'Coming in Month 2' };
 
@@ -1418,7 +1419,7 @@ function renderDoc(payload) {
 
     if (a.data.seo && a.data.seo.length) {
       main.append(h('div', { class: 'seo-card' },
-        h('div', { class: 'seo-head', style: { paddingTop: '12px' } }, h('h4', null, 'SEO details')),
+        h('div', { class: 'seo-head', style: { paddingTop: '12px' } }, h('h4', null, dataset.tab === 'gbp' ? 'Post details' : 'SEO details')),
         a.data.seo.map(([k, v]) => h('div', { class: 'row' }, h('div', { class: 'k' }, k), h('div', { class: 'v' }, v)))));
     }
     const prose = h('div', { class: 'prose editable-doc', html: a.data.html });
@@ -1657,7 +1658,7 @@ const TOUR_STEPS = [
       'Your project is reviewed one step at a time. When a step is done, the next one opens.',
       '1 Keywords: the searches we will rank you for, with monthly rankings.',
       '2 On-Page SEO · 3 Prompts · 4 Backlinks follow as the work progresses. Backlinks start in Month 2, and Prompts are coming soon.',
-      '5 Blogs and 6 Landing Pages can be reviewed at any time, so a colleague who approves content can go straight there.',
+      '5 Blogs, 6 GBP Posts and 7 Landing Pages can be reviewed at any time, so a colleague who approves content can go straight there.',
     ],
   },
   {
@@ -1706,9 +1707,9 @@ const TOUR_STEPS = [
   },
   {
     target: '.tab[data-tab="blogs"]',
-    title: 'Reviewing blogs and landing pages',
+    title: 'Reviewing blogs, GBP posts and landing pages',
     body: [
-      'Open an article or landing page and read it as it will appear on your site.',
+      'Open an article, Google Business Profile post or landing page and read it as it will appear.',
       'Click any text and edit it directly, just like in Word. Changes save automatically.',
       'Your changes are highlighted, and listed under “Your changes” beside the article, where you can undo any of them.',
       'Use 💬 Comment or question for anything you would rather we changed for you.',
