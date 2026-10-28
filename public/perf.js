@@ -195,6 +195,7 @@ function aiWins(rep) {
     const places = rep.rows.map((r) => ({ keyword: r.keyword, p: r.ai[j] })).filter((x) => x.p !== null);
     const first = places.filter((x) => x.p.pos === 1);
     return {
+      live: Boolean(a.live), named: places.filter((x) => x.p.named).length, cited: places.filter((x) => x.p.cited).length,
       engine: a.engine, label: a.label, total: rep.rows.length, checked: places.length,
       shown: places.filter((x) => x.p.shown).length, first: first.length, firstExample: first[0] ? first[0].keyword : null,
     };
@@ -212,7 +213,7 @@ function aiTiles(list) {
   const tiles = [];
   const lead = [...list].sort((a, b) => b.first - a.first || b.shown - a.shown)[0];
   if (lead && lead.first) tiles.push(h('div', { class: 'stat ai-stat' },
-    h('div', { class: 'k' }, `✨ #1 in ${lead.engine}`),
+    h('div', { class: 'k' }, lead.live ? `✨ First source in ${lead.engine}` : `✨ #1 in ${lead.engine}`),
     h('div', { class: 'v' }, String(lead.first), h('small', null, lead.first === 1 ? 'keyword' : 'keywords')),
     lead.firstExample ? h('div', { class: 'stat-deltas' }, h('span', { class: 'muted' }, `incl. “${lead.firstExample}”`)) : null));
   for (const w of list.slice(0, 3)) {
@@ -263,7 +264,9 @@ function perfSummary(data) {
   const lead = [...aiAnswers].sort((a, b) => b.first - a.first || b.shown - a.shown)[0];
   if (lead && lead.shown) {
     out.push(lead.first
-      ? `In ${lead.engine}, you are the first business named for ${lead.first} ${lead.first === 1 ? 'keyword' : 'keywords'}${lead.firstExample ? `, including “${lead.firstExample}”` : ''}, and you appear for ${lead.shown} of ${lead.total} keywords we track.`
+      ? lead.live
+        ? `${lead.engine} cites you as its first source for ${lead.first} ${lead.first === 1 ? 'keyword' : 'keywords'}${lead.firstExample ? `, including “${lead.firstExample}”` : ''}, and cites or names you for ${lead.shown} of the ${lead.total} keywords we track.`
+        : `In ${lead.engine}, you are the first business named for ${lead.first} ${lead.first === 1 ? 'keyword' : 'keywords'}${lead.firstExample ? `, including “${lead.firstExample}”` : ''}, and you appear for ${lead.shown} of ${lead.total} keywords we track.`
       : `You appear in ${lead.engine} for ${lead.shown} of the ${lead.total} keywords we track.`);
   }
   const s = growth(ga4.organic_sessions);
@@ -290,12 +293,36 @@ function perfSummary(data) {
   return out;
 }
 
-// Place in an AI answer: #1 (named first), Shown (named, place not noted), or –.
-function aiBadge(p) {
+// Place in an AI answer. From the live check: "Source #n" (the n-th source
+// Google cites) and/or "Named" (the answer mentions the business), clickable
+// for the evidence. From the ranking sheet: #n (named in that place) or Shown.
+function aiBadge(p, keyword, engine, label) {
   if (!p) return h('span', { class: 'muted' }, '–');
-  if (!p.shown) return h('span', { class: 'muted small' }, 'Not shown');
+  if (p.live && p.present === false) return h('span', { class: 'muted small', title: 'Google showed no AI Overview for this search' }, 'No AI Overview');
+  if (!p.shown) {
+    return p.live ? h('button', { class: 'linklike muted small', onclick: () => aiEvidence(p, keyword, engine, label) }, 'Not shown') : h('span', { class: 'muted small' }, 'Not shown');
+  }
+  const kids = [];
+  if (p.live) {
+    if (p.cited) kids.push(h('span', { class: `ai-badge${p.pos === 1 ? ' first' : ''}` }, `Source #${p.pos}`));
+    if (p.named) kids.push(h('span', { class: 'ai-badge named' }, 'Named'));
+    return h('button', { class: 'ai-btn', title: 'See what Google’s AI Overview showed', onclick: () => aiEvidence(p, keyword, engine, label) }, kids);
+  }
   return p.pos ? h('span', { class: `ai-badge${p.pos === 1 ? ' first' : ''}`, title: p.pos === 1 ? 'Named first in the AI answer' : `Named in position ${p.pos}` }, `#${p.pos}`)
     : h('span', { class: 'ai-badge', title: 'Named in the AI answer' }, '✓ Shown');
+}
+
+// The evidence behind a live AI Overview result, so it can be checked.
+function aiEvidence(p, keyword, engine, label) {
+  const us = (S.project && (S.project.client_name || S.project.name)) || 'you';
+  openDrawer(`${engine}: “${keyword}”`, `${label}. Searched from Google’s servers (not signed in), so your own search can show a different answer.`, [
+    h('div', { class: 'ai-ev-status' }, p.cited
+      ? `✓ ${us} is source #${p.pos} of the sources Google cited${p.named ? ', and the answer names you.' : '.'}`
+      : p.named ? `✓ The answer names ${us}, but does not list your website as a source.` : `${us} was not cited or named in this AI Overview.`),
+    p.snippet ? [h('h4', null, 'Where the answer names you'), h('blockquote', { class: 'ai-ev-quote' }, p.snippet)] : null,
+    (p.sources || []).length ? [h('h4', null, 'Sources Google cited, in order'), h('ol', { class: 'ai-ev-sources' }, p.sources.map((x, i) => h('li', { class: p.cited && i === p.pos - 1 ? 'us' : '' }, x)))] : null,
+    h('p', { class: 'muted small' }, 'Google writes a new AI Overview for each search, so the sources and their order can change from one search to the next. We check every week and show the latest result.'),
+  ]);
 }
 
 // Our month-end ranking report for every keyword, read-only, so clients can
@@ -321,7 +348,7 @@ function rankingReportCard(rep) {
         onTarget(c) ? h('span', { class: 'on-target', title: `Within our projection of ${c.target}` }, '✓ on target') : null,
         c.target !== null && c.target !== '' ? h('div', { class: 'muted small' }, `target ${c.target}`) : null)),
       rep.next ? h('td', { class: 'nowrap' }, r.next === null || r.next === '' ? h('span', { class: 'muted' }, '–') : h('span', { class: `range${inTopRange(r.next) ? ' top' : ''}` }, String(r.next))) : null,
-      (rep.ai || []).map((a, j) => h('td', { class: 'nowrap' }, aiBadge(r.ai[j])))))
+      (rep.ai || []).map((a, j) => h('td', { class: 'nowrap' }, aiBadge(r.ai[j], r.keyword, a.engine, a.label)))))
       : [h('tr', null, h('td', { colspan: 99, class: 'muted' }, 'No keywords match.'))]));
   };
   q.addEventListener('input', draw);
@@ -331,7 +358,7 @@ function rankingReportCard(rep) {
       h('h3', { style: { margin: 0 } }, 'Keyword rankings, month by month'), q),
     h('div', { class: 'muted small', style: { marginBottom: '10px' } },
       last >= 0
-        ? `From our month-end ranking reports (${rep.name}). In ${rep.months[last].label}, ${hit} of ${rep.rows.length} keywords ranked within or better than our projection (✓ on target).${rep.next ? ' “Projected” is our projection for the coming months.' : ''}${(rep.ai || []).length ? ' ✨ columns show where you are named in AI answers (#1 = named first).' : ''}`
+        ? `From our month-end ranking reports (${rep.name}). In ${rep.months[last].label}, ${hit} of ${rep.rows.length} keywords ranked within or better than our projection (✓ on target).${rep.next ? ' “Projected” is our projection for the coming months.' : ''}${(rep.ai || []).length ? ' ✨ columns show where AI answers cite or name you; click a result to see what the AI Overview showed.' : ''}`
         : `Your ${rep.rows.length} keywords and our projected rankings (${rep.name}). Actual rankings appear here after each month-end report.`),
     h('div', { class: 'table-wrap', style: { maxHeight: '460px' } }, h('table', { class: 'data' },
       h('thead', null, h('tr', null,

@@ -282,16 +282,21 @@ test('checks Google AI Overview and the exact position with DataForSEO', async (
   assert.equal(specialist.livePosition, 4);
   // The live check replaces the sheet's AI Overview column: named first (via Google Maps).
   assert.match(d.rankingReport.ai[0].label, /^Checked /);
-  assert.deepEqual(d.rankingReport.rows.map((x) => x.ai[0]), [{ shown: true, pos: 1 }, { shown: false, pos: null }]);
+  const [first, second] = d.rankingReport.rows.map((x) => x.ai[0]);
+  assert.equal(first.cited, true);
+  assert.equal(first.pos, 2, 'second source Google cites, after The Hearing Centre');
+  assert.deepEqual(first.sources, ['The Hearing Centre (thehearingcentre.sg)', 'Google Maps']);
+  assert.equal(second.present, false, 'checked: Google showed no AI Overview for this keyword');
   assert.equal(analytics.getSettings(pid).dataforseo.lastCount, 2);
-  assert.deepEqual(analytics.getSettings(pid).dataforseo.lastSummary, { aiPresent: 1, shown: 1, first: 1, ranked: 1 });
+  assert.deepEqual(analytics.getSettings(pid).dataforseo.lastSummary, { aiPresent: 1, shown: 1, cited: 1, named: 0, first: 0, ranked: 1 });
   assert.equal(bodies[0].depth, 20);
 
   // "Test one keyword" explains what Google returned.
   const t = await analytics.dfsTest(pid, 'hearing aid specialist', fakeFetch);
   assert.equal(t.aiOverview, true);
-  assert.deepEqual(t.ai, { shown: true, pos: 1, present: true });
-  assert.ok(t.aiSources.some((x) => /The Hearing Room/.test(x)));
+  assert.equal(t.ai.cited, true);
+  assert.equal(t.ai.pos, 2);
+  assert.ok(t.aiSources.includes('Google Maps'));
 
   // A failed check is kept for the admin card.
   const failing = async () => ({ ok: false, status: 401, json: async () => ({ status_code: 40100, status_message: 'Unauthorized' }) });
@@ -303,4 +308,28 @@ test('checks Google AI Overview and the exact position with DataForSEO', async (
   bodies.length = 0;
   await analytics.syncProject(pid, { fetchImpl: fakeFetch });
   assert.equal(bodies.length, 0);
+});
+
+test('AI Overview: only real sources and the answer text count', () => {
+  const brand = { domain: 'dotchambers.com', brand: 'DOT CHAMBERS LLC' };
+  // "prenuptial agreement lawyer singapore": DOT Chambers is not among the sources.
+  const prenup = {
+    type: 'ai_overview',
+    markdown: 'Find prenuptial agreement legal services in Singapore through PKWA Law Practice LLC or Yeo & Associates LLC.',
+    references: [{ domain: 'pkwalaw.com', source: 'PKWA Law' }, { domain: 'familylawyersg.com', source: 'familylawyersg.com' }, { domain: 'yuenlaw.com.sg', source: 'Yuen Law LLC' }, { domain: 'yeoandassociates.com', source: 'Yeo & Associates' }],
+    images: [{ url: 'https://www.dotchambers.com/logo.png', domain: 'www.dotchambers.com' }],
+  };
+  const p = analytics.aiOverviewPlace(prenup, brand);
+  assert.equal(p.shown, false, 'an image or stray link is not a citation');
+  assert.equal(p.sources.length, 4);
+  // "best family lawyer singapore": a "Chambers" directory source is not DOT Chambers.
+  const best = {
+    type: 'ai_overview',
+    items: [{ type: 'ai_overview_element', text: 'Top ranked family law firms: PKWA Law Practice LLC, Harry Elias Partnership LLP and DOT Chambers LLC, known for fixed fees.' }],
+    references: [{ domain: 'pkwalaw.com', source: 'PKWA Law' }, { domain: 'chambers.com', source: 'Chambers', title: 'Family/Matrimonial: High Net Worth, Singapore | Chambers' }, { domain: 'dotchambers.com', source: 'DOT Chambers' }],
+  };
+  const b = analytics.aiOverviewPlace(best, brand);
+  assert.equal(b.pos, 3, 'DOT Chambers is the third source, not "Chambers"');
+  assert.equal(b.named, true);
+  assert.match(b.snippet, /DOT Chambers LLC/);
 });

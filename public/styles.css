@@ -567,3 +567,11 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .ai-badge.first { background: #5b45a8; color: #fff; }
 table.data th.ai-th { color: #5b45a8; }
 .dfs-test { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; background: #fbfcfe; line-height: 1.5; }
+.ai-btn { border: none; background: none; padding: 0; cursor: pointer; display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.ai-btn:hover .ai-badge { box-shadow: 0 0 0 2px #d8cff8; }
+.ai-badge.named { background: #f1eefc; color: #5b45a8; font-weight: 600; }
+.ai-ev-status { font-weight: 600; margin-bottom: 12px; line-height: 1.5; }
+.ai-ev-quote { margin: 0 0 14px; padding: 10px 12px; border-left: 3px solid #5b45a8; background: #f7f5fe; border-radius: 6px; line-height: 1.55; }
+.ai-ev-sources { margin: 0 0 14px; padding-left: 22px; line-height: 1.7; }
+.ai-ev-sources li.us { font-weight: 700; color: #4b3794; }
+button.linklike { background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }

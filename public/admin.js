@@ -722,7 +722,7 @@ function dfsStatus(dfs, s) {
   const sm = dfs.lastSummary || {};
   return box('var(--ok)', 'var(--ok-ink)',
     h('strong', null, `✓ Checked ${dfs.lastCount} keywords ${timeAgo(dfs.lastRun.replace('T', ' ').slice(0, 19))} for US$${dfs.lastCost}.`),
-    sm.aiPresent !== undefined ? `Google showed an AI Overview for ${sm.aiPresent} of them. ${dfs.brand || 'The business'} is named in ${sm.shown}${sm.first ? ` (#1 in ${sm.first})` : ''}. The website ranks in the top ${dfs.depth || 20} for ${sm.ranked}.` : null,
+    sm.aiPresent !== undefined ? `Google showed an AI Overview for ${sm.aiPresent} of them. ${dfs.brand || 'The business'} is cited as a source in ${sm.cited ?? sm.shown}${sm.first ? ` (first source in ${sm.first})` : ''} and named in the answer in ${sm.named ?? '–'}. The website ranks in the top ${dfs.depth || 20} for ${sm.ranked}.` : null,
     sm.aiPresent === 0 ? 'No AI Overview appeared for any keyword. Google does not show one for every search; try “Test one keyword” below to see what Google returned.' : null);
 }
 
@@ -738,9 +738,10 @@ function dfsTestBox(p) {
       out.replaceChildren(h('div', { class: 'small dfs-test' },
         h('div', null, h('strong', null, `“${r.keyword}”`), ` · cost US$${r.cost}`),
         h('div', null, h('strong', null, 'AI Overview: '), r.aiOverview
-          ? (r.ai.shown ? `✓ named${r.ai.pos ? `, #${r.ai.pos}` : ''}` : 'shown by Google, but the business is not named in it')
+          ? [r.ai.cited ? `✓ cited as source #${r.ai.pos}` : 'not among the sources', r.ai.named ? ' · ✓ named in the answer' : ' · not named in the answer'].join('')
           : 'Google did not show an AI Overview for this search'),
-        r.aiSources.length ? h('div', null, h('strong', null, 'Sources in the AI Overview: '), r.aiSources.join(' · ')) : null,
+        r.aiSources.length ? h('div', null, h('strong', null, 'Sources Google cited, in order: '), r.aiSources.map((x, i) => `${i + 1}. ${x}`).join(' · ')) : null,
+        r.ai && r.ai.snippet ? h('div', null, h('strong', null, 'Where the answer names the business: '), `“${r.ai.snippet}”`) : null,
         h('div', null, h('strong', null, 'Website position: '), r.position ? `#${r.position}${r.url ? ` (${r.url})` : ''}` : 'not in the top 20'),
         r.topResults.length ? h('div', { class: 'muted' }, `Top results: ${r.topResults.join(' · ')}`) : null,
         h('div', { class: 'muted' }, `Result types: ${r.itemTypes.join(', ') || 'none'}`)));
