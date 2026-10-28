@@ -625,6 +625,13 @@ app.put('/api/admin/projects/:id/analytics', requireAdmin, (req, res) => {
   res.json({ ok: true, settings: analytics.getSettings(p.id) });
 });
 
+app.post('/api/admin/projects/:id/dataforseo/test', requireAdmin, async (req, res) => {
+  const p = getProject(req.params.id);
+  const keyword = str(req.body?.keyword, 200) || analytics.trackedKeywords(p.id)[0];
+  if (!keyword) throw new HttpError(400, 'Type a keyword to test.');
+  try { res.json(await analytics.dfsTest(p.id, keyword)); } catch (err) { throw new HttpError(400, err.message); }
+});
+
 app.post('/api/admin/projects/:id/analytics/sync', requireAdmin, async (req, res) => {
   const p = getProject(req.params.id);
   res.json(await analytics.syncProject(p.id, { only: req.body?.only }));

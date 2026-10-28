@@ -472,7 +472,7 @@ async function renderPerformance(root) {
           h('td', null, k.gscBest !== null ? [rankBadge(pos(k.gscBest)), k.gscBestDate ? h('span', { class: 'muted small', style: { marginLeft: '6px' } }, day(k.gscBestDate)) : null] : h('span', { class: 'muted' }, 'Not yet')),
           h('td', null, k.gscPosition !== null ? rankBadge(pos(k.gscPosition)) : h('span', { class: 'muted' }, '–')),
           h('td', { class: 'num' }, k.gscClicks !== null ? compact(k.gscClicks) : '–'),
-          exact ? h('td', { class: 'nowrap' }, k.livePosition !== null ? [rankBadge(k.livePosition), k.liveUrl ? linkIcon(k.liveUrl) : null] : h('span', { class: 'muted small' }, 'Not in top 100')) : null,
+          exact ? h('td', { class: 'nowrap' }, k.livePosition !== null ? [rankBadge(k.livePosition), k.liveUrl ? linkIcon(k.liveUrl) : null] : h('span', { class: 'muted small' }, 'Not in top 20')) : null,
           showLive ? h('td', null, k.semrushPosition !== null ? rankBadge(k.semrushPosition) : h('span', { class: 'muted' }, 'Not in top 100'),
             k.semrushUrl ? linkIcon(k.semrushUrl) : null) : null))))),
       showLive && data.liveFetchedAt.semrush ? h('div', { class: 'muted small', style: { marginTop: '8px' } }, `SEMrush positions fetched ${timeAgo(data.liveFetchedAt.semrush)}. Tools measure differently, so small differences from Search Console are normal.`) : null);

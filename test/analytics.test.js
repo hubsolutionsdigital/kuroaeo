@@ -284,6 +284,20 @@ test('checks Google AI Overview and the exact position with DataForSEO', async (
   assert.match(d.rankingReport.ai[0].label, /^Checked /);
   assert.deepEqual(d.rankingReport.rows.map((x) => x.ai[0]), [{ shown: true, pos: 1 }, { shown: false, pos: null }]);
   assert.equal(analytics.getSettings(pid).dataforseo.lastCount, 2);
+  assert.deepEqual(analytics.getSettings(pid).dataforseo.lastSummary, { aiPresent: 1, shown: 1, first: 1, ranked: 1 });
+  assert.equal(bodies[0].depth, 20);
+
+  // "Test one keyword" explains what Google returned.
+  const t = await analytics.dfsTest(pid, 'hearing aid specialist', fakeFetch);
+  assert.equal(t.aiOverview, true);
+  assert.deepEqual(t.ai, { shown: true, pos: 1, present: true });
+  assert.ok(t.aiSources.some((x) => /The Hearing Room/.test(x)));
+
+  // A failed check is kept for the admin card.
+  const failing = async () => ({ ok: false, status: 401, json: async () => ({ status_code: 40100, status_message: 'Unauthorized' }) });
+  const bad = await analytics.syncProject(pid, { only: 'dataforseo', fetchImpl: failing });
+  assert.match(bad.errors[0], /wrong login or password/);
+  assert.match(analytics.getSettings(pid).dataforseo.lastError, /wrong login or password/);
 
   // Not due again for a week.
   bodies.length = 0;

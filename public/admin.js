@@ -545,7 +545,7 @@ async function renderPerformanceAdmin(body) {
       s.lastSync ? h('span', { class: 'muted small' }, `Last synced ${timeAgo(s.lastSync.replace('T', ' ').slice(0, 19))}. Data refreshes daily.`) : null),
     (s.lastErrors || []).length ? h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, s.lastErrors.join(' · ')) : null);
 
-  const dfsBtn = h('button', { class: 'btn' }, '↻ Check now');
+  const dfsBtn = h('button', { class: 'btn primary' }, '↻ Check all keywords now');
   dfsBtn.addEventListener('click', () => sync(dfsBtn, 'dataforseo'));
   const estimate = h('span', { class: 'muted small' });
   const updateEstimate = () => {
@@ -570,7 +570,7 @@ async function renderPerformanceAdmin(body) {
       h('label', { class: 'field' }, 'Device', dfsDevice)),
     h('label', { class: 'row-flex small' }, dfsOn, 'Check this project’s keywords automatically'),
     h('div', { class: 'row-flex' }, dfsBtn, estimate),
-    dfs.lastRun ? h('div', { class: 'muted small' }, `Last checked ${timeAgo(dfs.lastRun.replace('T', ' ').slice(0, 19))}: ${dfs.lastCount} keywords for US$${dfs.lastCost}.`) : null);
+    dfsStatus(dfs, s), dfsTestBox(p));
 
   const semCard = h('div', { class: 'card card-pad', style: { display: 'grid', gap: '12px' } },
     h('h3', { style: { margin: 0 } }, '📡 Live rankings (SEMrush), optional'),
@@ -706,6 +706,52 @@ async function removeFeedback(id) {
   if (!confirm('Delete this comment permanently?')) return;
   await api('DELETE', `/api/admin/feedback/${id}`);
   refresh();
+}
+
+/* ---------- DataForSEO status and one-keyword test ---------- */
+
+// What the last check did, in plain words, so a failed or empty check is never silent.
+function dfsStatus(dfs, s) {
+  const box = (bg, ink, ...kids) => h('div', { class: 'small', style: { background: bg, color: ink, padding: '10px 12px', borderRadius: '10px', display: 'grid', gap: '4px' } }, ...kids);
+  const otherErr = (s.lastErrors || []).find((e) => /^DATAFORSEO/i.test(e));
+  if (!dfs.configured) return box('var(--amber)', 'var(--amber-ink)', h('strong', null, 'Not connected yet.'), 'DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD are not set in Railway (or Railway has not redeployed since you added them).');
+  if (dfs.lastError || (otherErr && !dfs.lastRun)) {
+    return box('var(--red)', 'var(--red-ink)', h('strong', null, `⚠ The last check failed${dfs.lastErrorAt ? ` ${timeAgo(dfs.lastErrorAt.replace('T', ' ').slice(0, 19))}` : ''}:`), dfs.lastError || otherErr.replace(/^DATAFORSEO:\s*/i, ''));
+  }
+  if (!dfs.lastRun) return box('var(--blue)', 'var(--blue-ink)', h('strong', null, 'No check has run yet.'), 'Press “Check all keywords now”. Clients see the ✨ Google AI Overview column on their Performance page after the first check.');
+  const sm = dfs.lastSummary || {};
+  return box('var(--ok)', 'var(--ok-ink)',
+    h('strong', null, `✓ Checked ${dfs.lastCount} keywords ${timeAgo(dfs.lastRun.replace('T', ' ').slice(0, 19))} for US$${dfs.lastCost}.`),
+    sm.aiPresent !== undefined ? `Google showed an AI Overview for ${sm.aiPresent} of them. ${dfs.brand || 'The business'} is named in ${sm.shown}${sm.first ? ` (#1 in ${sm.first})` : ''}. The website ranks in the top ${dfs.depth || 20} for ${sm.ranked}.` : null,
+    sm.aiPresent === 0 ? 'No AI Overview appeared for any keyword. Google does not show one for every search; try “Test one keyword” below to see what Google returned.' : null);
+}
+
+function dfsTestBox(p) {
+  const kw = h('input', { class: 'input', placeholder: 'e.g. hearing aid specialist', style: { maxWidth: '320px' } });
+  const out = h('div');
+  const btn = h('button', { class: 'btn' }, '🔍 Test one keyword');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    out.replaceChildren(h('div', { class: 'spinner' }));
+    try {
+      const r = await api('POST', `/api/admin/projects/${p.id}/dataforseo/test`, { keyword: kw.value });
+      out.replaceChildren(h('div', { class: 'small dfs-test' },
+        h('div', null, h('strong', null, `“${r.keyword}”`), ` · cost US$${r.cost}`),
+        h('div', null, h('strong', null, 'AI Overview: '), r.aiOverview
+          ? (r.ai.shown ? `✓ named${r.ai.pos ? `, #${r.ai.pos}` : ''}` : 'shown by Google, but the business is not named in it')
+          : 'Google did not show an AI Overview for this search'),
+        r.aiSources.length ? h('div', null, h('strong', null, 'Sources in the AI Overview: '), r.aiSources.join(' · ')) : null,
+        h('div', null, h('strong', null, 'Website position: '), r.position ? `#${r.position}${r.url ? ` (${r.url})` : ''}` : 'not in the top 20'),
+        r.topResults.length ? h('div', { class: 'muted' }, `Top results: ${r.topResults.join(' · ')}`) : null,
+        h('div', { class: 'muted' }, `Result types: ${r.itemTypes.join(', ') || 'none'}`)));
+    } catch (err) {
+      out.replaceChildren(h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, err.message));
+    }
+    btn.disabled = false;
+  });
+  return h('div', { style: { display: 'grid', gap: '8px', borderTop: '1px solid var(--line)', paddingTop: '12px' } },
+    h('div', { class: 'muted small' }, 'Not sure it works? Test one keyword: it shows what Google returned, whether there was an AI Overview, and which sources it named (about US$0.006).'),
+    h('div', { class: 'row-flex' }, kw, btn), out);
 }
 
 /* ---------- settings ---------- */
