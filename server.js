@@ -6,6 +6,7 @@ const multer = require('multer');
 const { db, transaction } = require('./lib/db');
 const { parseWorkbook, primaryColumn, normalizeKey, TABS } = require('./lib/excel');
 const { parseBlogDoc, sanitizeEdit, sanitizeIntro, stripTags } = require('./lib/docx');
+const { DocxWriter, withEdits } = require('./lib/docxExport');
 const analytics = require('./lib/analytics');
 const alerts = require('./lib/alerts');
 const { sendMail, smtpConfig, emailList } = require('./lib/mailer');
@@ -461,6 +462,52 @@ app.patch('/api/admin/datasets/:id', requireAdmin, (req, res) => {
     }
   });
   res.json({ ok: true });
+});
+
+// Word download of a blog, GBP post or landing page document for publishing:
+// the client's edits applied, each article's status, its SEO or post details,
+// and any requests from the client that are still open.
+app.get('/api/admin/datasets/:id/export.docx', requireAdmin, async (req, res) => {
+  const d = db.prepare("SELECT * FROM datasets WHERE id = ? AND kind = 'doc'").get(req.params.id);
+  if (!d) throw new HttpError(404, 'Not found.');
+  const project = getProject(d.project_id);
+  const only = req.query.article ? String(req.query.article) : null;
+  const articles = db.prepare("SELECT item_key, label, data FROM items WHERE dataset_id = ? AND kind = 'article' ORDER BY position").all(d.id)
+    .map((a) => ({ ...a, data: parseJSON(a.data, {}) })).filter((a) => !only || a.item_key === only);
+  if (!articles.length) throw new HttpError(404, 'Not found.');
+  const edits = listEdits({ datasetId: d.id });
+  const feedback = listFeedback(project.id).filter((f) => !f.parent_id && f.author_role === 'client');
+  const noun = d.tab === 'gbp' ? 'post' : d.tab === 'landing' ? 'landing page' : 'article';
+  const day = (s) => new Date(`${String(s).replace(' ', 'T')}Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const doc = new DocxWriter();
+  doc.title(only ? (articles[0].data.title || articles[0].label) : d.name);
+  const editedCount = new Set(edits.filter((e) => articles.some((a) => a.item_key === e.item_key)).map((e) => e.item_key)).size;
+  doc.note(`${project.name}${d.period ? ` · ${d.period}` : ''} · Exported ${day(new Date().toISOString().slice(0, 19).replace('T', ' '))}${editedCount ? ` · The client’s text edits are applied (${editedCount} ${editedCount === 1 ? noun : `${noun}s`}).` : ''}`);
+  articles.forEach((a, i) => {
+    if (i) doc.pageBreak();
+    if (!only) doc.heading(a.data.number ? `${a.data.number}. ${a.data.title || a.label}` : (a.data.title || a.label), 1);
+    const mine = feedback.filter((f) => f.item_key === a.item_key);
+    const approvals = mine.filter((f) => f.type === 'approve');
+    const open = feedback.filter((f) => (f.item_key === a.item_key || f.item_key.startsWith(`${a.item_key}#img`)) && f.status === 'open');
+    const last = approvals[approvals.length - 1];
+    const myEdits = edits.filter((e) => e.item_key === a.item_key);
+    doc.note([
+      last ? `✓ Approved by ${last.name} on ${day(last.created_at)}` : open.length ? 'Waiting on the client: changes or questions are open' : 'Not approved yet',
+      myEdits.length ? `${myEdits.length} ${myEdits.length === 1 ? 'paragraph' : 'paragraphs'} edited by the client` : null,
+    ].filter(Boolean).join(' · '), last ? '1F7A55' : '8A5A00');
+    doc.details(a.data.seo || [], d.tab === 'gbp' ? 'Post details' : 'SEO details');
+    doc.html(withEdits(a.data.html, myEdits));
+    if (open.length) {
+      doc.heading('Open requests from the client', 4);
+      doc.bullets(open.map((f) => `${f.name}${f.item_key.includes('#img') ? ' (about the image)' : ''}: ${f.comment || f.type}`));
+    }
+  });
+  const buf = await doc.toBuffer({ title: d.name });
+  const base = (only ? (articles[0].data.title || articles[0].label) : d.name).replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'export';
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  res.setHeader('Content-Disposition', `attachment; filename="${base.replace(/[^\x20-\x7e]/g, '-')}.docx"; filename*=UTF-8''${encodeURIComponent(base)}.docx`);
+  res.send(buf);
 });
 
 app.delete('/api/admin/datasets/:id', requireAdmin, (req, res) => {

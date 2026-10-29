@@ -235,3 +235,28 @@ test('reads Google Business Profile posts: "POST 1 · title", a repeated banner 
   assert.notEqual(doc.articles[0].key, doc.articles[1].key, 'posts sharing a landing page keep their own keys');
   for (const a of doc.articles) assert.doesNotMatch(a.html, /GOOGLE BUSINESS PROFILE|<table/, 'banner, label and CTA table are not in the copy');
 });
+
+test('exports a document to Word with the client’s edits applied', async () => {
+  const JSZip = require('jszip');
+  const mammoth = require('mammoth');
+  const { DocxWriter, withEdits } = require('../lib/docxExport');
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  const html = `<h2>Why it matters</h2><p>We offer <strong>free</strong> tests.</p><ul><li>One</li><li>Two</li></ul><ol><li>First</li></ol><table><tr><td>Fee</td><td>S$100</td></tr></table><p><img src="${png}" alt="Clinic"></p><p>Visit <a href="https://example.com">our site</a>.</p>`;
+  // Block 1 is the first paragraph; block 3 the second bullet; block 6 the fee cell.
+  const nodes = withEdits(html, [{ block: 1, html: 'We offer <strong>affordable</strong> tests.' }, { block: 3, html: 'Two, edited' }, { block: 6, html: 'S$120' }]);
+  const doc = new DocxWriter();
+  doc.title('Blogs');
+  doc.details([['Meta title', 'Hearing tests']], 'SEO details');
+  doc.html(nodes);
+  const buf = await doc.toBuffer({ title: 'Blogs' });
+  const zip = await JSZip.loadAsync(buf);
+  assert.ok(zip.file('word/media/image1.png'), 'the image is embedded');
+  const { value } = await mammoth.convertToHtml({ buffer: buf });
+  assert.match(value, /<h2>Why it matters<\/h2>/);
+  assert.match(value, /We offer <strong>affordable<\/strong> tests\./);
+  assert.doesNotMatch(value, /free/);
+  assert.match(value, /<li>Two, edited<\/li>/);
+  assert.match(value, /S\$120/);
+  assert.match(value, /<a href="https:\/\/example.com">our site<\/a>/);
+  assert.match(value, /<img /);
+});

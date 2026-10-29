@@ -183,6 +183,7 @@ function datasetRow(d, p) {
       h('a', { class: 'btn sm ghost', href: `${clientUrl(p)}#${d.tab}`, target: '_blank', rel: 'noopener' }, 'View'),
       h('button', { class: 'btn sm ghost', onclick: edit }, 'Edit'),
       d.kind === 'doc' ? h('button', { class: 'btn sm ghost', onclick: () => editOverview(d, p) }, 'Edit overview') : null,
+      d.kind === 'doc' ? h('a', { class: 'btn sm', href: `/api/admin/datasets/${d.id}/export.docx`, title: 'Word document with the client’s edits applied, for publishing' }, '⬇ Word') : null,
       h('button', {
         class: 'btn sm ghost danger',
         onclick: async () => {
@@ -664,7 +665,9 @@ function renderFeedback(body) {
       h('h3', { style: { margin: '0 0 4px' } }, `✏️ Text edited by the client (${shown.length})`),
       h('div', { class: 'muted small', style: { marginBottom: '12px' } }, h('ins', { class: 'ed-ins' }, 'Added words'), ' are highlighted and ', h('del', { class: 'ed-del' }, 'removed words'), ' struck through. Copy the new wording into the article, then upload the updated document.'),
       [...byItem.values()].map((list) => h('div', { style: { marginBottom: '14px' } },
-        h('div', { style: { fontWeight: 700, marginBottom: '6px' } }, `${TAB_META[list[0].tab].icon} ${list[0].item_label || list[0].item_key}`, h('span', { class: 'muted small', style: { fontWeight: 400 } }, ` · ${list[0].dataset_name}`)),
+        h('div', { class: 'between', style: { marginBottom: '6px' } },
+          h('div', { style: { fontWeight: 700 } }, `${TAB_META[list[0].tab].icon} ${list[0].item_label || list[0].item_key}`, h('span', { class: 'muted small', style: { fontWeight: 400 } }, ` · ${list[0].dataset_name}`)),
+          h('a', { class: 'btn sm', href: `/api/admin/datasets/${list[0].dataset_id}/export.docx?article=${encodeURIComponent(list[0].item_key)}` }, '⬇ Word, edits applied')),
         list.map((e) => h('div', { class: 'edit-diff' },
           h('div', { class: 'prose', html: diffHtml(e.original_html, e.html) }),
           h('div', { class: 'between', style: { marginTop: '6px' } },

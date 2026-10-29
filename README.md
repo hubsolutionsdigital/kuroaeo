@@ -18,6 +18,8 @@ The client adds their name and an optional comment. Their name is remembered in 
 
 When a client presses **📨 Submit feedback** (or finishes a whole section), they see a thank-you message and the team gets **one summary email** for that round, e.g. *“Dorothy submitted feedback · Dot Chambers (12 comments)”*, listing every approval, comment, question and text edit with a link to the Feedback tab. If the client never presses Submit, the summary is sent 10 minutes after their last comment.
 
+For publishing, **⬇ Word** (Admin → Content, beside each blog, GBP or landing page document, and per article on the Feedback tab) downloads a .docx with the client’s text edits applied, each article’s approval status, its SEO or post details, images, links and tables, and any requests from the client that are still open.
+
 Blogs, GBP posts and landing pages work like a Word document: the client clicks any paragraph, heading, list item or table cell and edits the words directly. Edits save automatically under their name, added words are highlighted and removed words struck through, and each edit can be undone. The team sees every edit as a before-and-after on the Feedback tab (and in the CSV export), and copies the new wording into the next version of the document. Clients approve each article, or leave a comment or question.
 
 ## Run it
