@@ -531,7 +531,8 @@ del.ed-del { color: #a1291c; text-decoration: line-through; text-decoration-thic
 .gsheet { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fbfcfe; }
 .gsheet-head { margin-bottom: 8px; font-size: 14px; }
 .gsheet .select { max-width: 420px; flex: 1; min-width: 200px; }
-.overview-editor { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; outline: none; min-height: 200px; }
+/* The editor scrolls itself: as a grid item in the drawer it was squeezed to the drawer's height and the text spilled out unscrollable (Safari). */
+.overview-editor { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; outline: none; min-height: 200px; height: calc(100vh - 290px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .overview-editor:focus { box-shadow: 0 0 0 3px #e3ecfa; border-color: var(--mint-line); }
 .ck-slot { background: var(--blue); color: var(--blue-ink); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin: 10px 0; user-select: none; }
 
@@ -575,3 +576,10 @@ table.data th.ai-th { color: #5b45a8; }
 .ai-ev-sources { margin: 0 0 14px; padding-left: 22px; line-height: 1.7; }
 .ai-ev-sources li.us { font-weight: 700; color: #4b3794; }
 button.linklike { background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+
+/* Document tabs: the ones that still need the client stand out */
+.seg.doc-tabs button { display: inline-flex; align-items: center; gap: 8px; }
+.seg.doc-tabs button.needs { background: #fff4dc; color: #6b4600; box-shadow: inset 0 0 0 1.5px #f0c35a; }
+.seg.doc-tabs button.needs.active { background: #fff; box-shadow: inset 0 0 0 2px #e0a800, 0 1px 3px rgba(0, 0, 0, .08); }
+.seg.doc-tabs button.done { color: #1f7a55; }
+.doc-tab-count { font-size: 11.5px; font-weight: 700; background: #e0a800; color: #fff; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }

@@ -115,7 +115,7 @@ function listFeedback(projectId) {
 // home page: the keyword, page or article names, without the full data.
 function reviewContents(projectId) {
   const latest = db.prepare(`
-    SELECT d.id, d.tab, d.name, d.period, d.phase, d.kind FROM datasets d
+    SELECT d.id, d.tab, d.name, d.period, d.phase, d.kind, d.created_at FROM datasets d
     WHERE d.id IN (SELECT MAX(id) FROM datasets WHERE project_id = ? GROUP BY tab, name) ORDER BY d.id
   `).all(projectId);
   const items = db.prepare('SELECT kind, item_key, label FROM items WHERE dataset_id = ? ORDER BY position');
@@ -124,6 +124,7 @@ function reviewContents(projectId) {
     return {
       ...d,
       checks: all.filter((i) => i.kind === 'check').length,
+      checkKeys: all.filter((i) => i.kind === 'check').map((i) => i.item_key),
       items: all.filter((i) => i.kind !== 'check').map((i) => ({ key: i.item_key, label: i.label })),
     };
   });

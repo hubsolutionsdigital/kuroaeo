@@ -445,6 +445,17 @@ function groupsFor(tab, phase = 'all') {
   return groups;
 }
 
+// How many items in an upload (latest version) the client has not reviewed
+// yet: rows, articles and overview points with no feedback from the client
+// since it was uploaded, so a revised article uploaded again needs a new look.
+function toReview(tab, name) {
+  const c = (S.contents || []).find((x) => x.tab === tab && x.name === name);
+  if (!c) return null;
+  const fb = fbByKey();
+  const reviewed = (key) => (fb.get(key) || []).some((f) => !f.parent_id && f.author_role === 'client' && (!c.created_at || f.created_at >= c.created_at));
+  return [...c.items.map((i) => i.key), ...(c.checkKeys || [])].filter((k) => !reviewed(k)).length;
+}
+
 function tabPhases(tab) {
   return [...new Set(S.datasets.filter((d) => d.tab === tab && d.phase).map((d) => d.phase))].sort((a, b) => a - b);
 }
@@ -500,10 +511,14 @@ async function renderTabBody(keepScroll) {
   const head = h('div', null, phaseSeg, h('div', { class: 'toolbar' },
     h('div', { class: 'left' },
       groups.size > 1
-        ? h('div', { class: 'seg' }, [...groups.keys()].map((name) => h('button', {
-          class: name === sel.name ? 'active' : '',
-          onclick: () => { S.sel[S.tab] = { name, id: groups.get(name)[0].id }; renderTabBody(); },
-        }, name)))
+        ? h('div', { class: 'seg doc-tabs' }, [...groups.keys()].map((name) => {
+          const left = toReview(S.tab, name);
+          return h('button', {
+            class: `${name === sel.name ? 'active' : ''}${left ? ' needs' : left === 0 ? ' done' : ''}`,
+            title: left ? `${left} still to review` : left === 0 ? 'All reviewed' : null,
+            onclick: () => { S.sel[S.tab] = { name, id: groups.get(name)[0].id }; renderTabBody(); },
+          }, left === 0 ? '✓ ' : null, name, left ? h('span', { class: 'doc-tab-count' }, `${left} to review`) : null);
+        }))
         : h('strong', { style: { fontSize: '17px' } }, sel.name)),
     h('div', { class: 'right' },
       versions.length > 1
