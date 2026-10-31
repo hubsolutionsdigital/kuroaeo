@@ -1014,22 +1014,23 @@ function renderTable(payload) {
   return wrap;
 }
 
-function bulkPopover(anchor, picked, datasetId, preselect) {
+function bulkPopover(anchor, picked, datasetId, preselect, { noun: one = TAB_META[S.tab].noun, types, selKey = datasetId, title } = {}) {
   const n = picked.length;
-  const noun = n === 1 ? TAB_META[S.tab].noun : `${TAB_META[S.tab].noun}s`;
+  const noun = n === 1 ? one : `${one}s`;
   const names = picked.slice(0, 4).map((it) => it.label).join(', ') + (n > 4 ? ` and ${n - 4} more` : '');
   openFeedbackPopover({
     anchor,
-    title: preselect === 'approve' ? `Approve ${n} ${noun}?` : `What do you think of these ${n} ${noun}?`,
+    title: title || (preselect === 'approve' ? `Approve ${n} ${noun}?` : `What do you think of these ${n} ${noun}?`),
     context: names,
     preselect,
+    types,
     getName,
     onSubmit: async ({ type, name, comment }) => {
       await api('POST', `/api/c/${encodeURIComponent(token)}/feedback/bulk`, {
         item_keys: picked.map((it) => it.item_key), dataset_id: datasetId, type, name, comment,
       });
       setName(name);
-      S.selected[datasetId] = new Set();
+      S.selected[selKey] = new Set();
       toast(type === 'approve' ? `Approved ${n} ${noun}. Thank you, ${name}!` : `Thanks, ${name}! Feedback sent for ${n} ${noun}.`);
       await refreshFeedback();
     },
@@ -1389,20 +1390,49 @@ function renderDoc(payload) {
 
   if (section === 'overview') {
     const prose = h('div', { class: 'prose', html: dataset.meta.introHtml || '' });
-    const list = h('div', { class: 'checklist' }, checks.map((c) => {
+    // Tick several review points and confirm them in one go.
+    const selKey = `checks:${dataset.id}`;
+    const chosen = S.selected[selKey] || (S.selected[selKey] = new Set());
+    const open = checks.filter((c) => itemStatus(fb.get(c.item_key)).key !== 'approved');
+    const bar = h('div', { class: 'check-bar' });
+    const boxes = new Map();
+    const drawBar = () => {
+      for (const k of [...chosen]) if (!open.some((c) => c.item_key === k)) chosen.delete(k);
+      for (const [k, box] of boxes) { box.checked = chosen.has(k); box.closest('.check-item').classList.toggle('picked', chosen.has(k)); }
+      if (!open.length) { bar.replaceChildren(h('span', { class: 'chip home-done' }, `✓ All ${checks.length} points confirmed`)); return; }
+      const all = chosen.size === open.length;
+      const confirm = h('button', { class: 'btn brand', disabled: !chosen.size }, chosen.size ? `✓ Confirm ${chosen.size} selected` : '✓ Confirm selected');
+      confirm.addEventListener('click', () => bulkPopover(confirm, checks.filter((c) => chosen.has(c.item_key)), dataset.id, 'approve',
+        { noun: 'point', types: ['approve'], selKey, title: `Confirm ${chosen.size} ${chosen.size === 1 ? 'point' : 'points'}?` }));
+      bar.replaceChildren(
+        h('label', { class: 'row-flex check-all' },
+          h('input', { type: 'checkbox', checked: all, onchange: (e) => { for (const c of open) { if (e.target.checked) chosen.add(c.item_key); else chosen.delete(c.item_key); } drawBar(); } }),
+          all ? 'Unselect all' : `Select all ${open.length} still to confirm`),
+        h('div', { class: 'row-flex' }, confirm,
+          chosen.size ? h('button', { class: 'btn ghost', onclick: () => { chosen.clear(); drawBar(); } }, 'Clear') : null));
+    };
+    const list = h('div', { class: 'checklist' }, bar, checks.map((c) => {
       const st = itemStatus(fb.get(c.item_key));
       const confirm = h('button', { class: 'btn sm' }, '✓ Confirm');
       confirm.addEventListener('click', () => feedbackPopover(confirm, c, dataset.id, { title: 'Confirm this point?', preselect: 'approve' }));
       const comment = h('button', { class: 'btn ghost sm' }, '💬 Comment');
       comment.addEventListener('click', () => feedbackPopover(comment, c, dataset.id, { title: 'Comment on this point', types: ['change', 'question'] }));
       const n = (fb.get(c.item_key) || []).length;
+      let tick;
+      if (st.key === 'approved') tick = h('span', { class: 'box' }, '✓');
+      else {
+        tick = h('input', { type: 'checkbox', class: 'check-box', 'aria-label': `Select: ${c.data.text.slice(0, 80)}` });
+        tick.addEventListener('change', () => { if (tick.checked) chosen.add(c.item_key); else chosen.delete(c.item_key); drawBar(); });
+        boxes.set(c.item_key, tick);
+      }
       return h('div', { class: `check-item${st.key === 'approved' ? ' done' : ''}` },
-        h('span', { class: 'box' }, st.key === 'approved' ? '✓' : ''),
+        tick,
         h('div', null, c.data.text,
           h('div', { class: 'row2' }, statusChip(st), reactionsRow(st), st.key !== 'approved' ? confirm : null, comment,
             n ? h('button', { class: 'btn ghost sm', onclick: () => openItemDrawer(c, dataset.id) }, `💬 ${n}`) : null)));
     }));
     const slot = prose.querySelector('[data-checklist]');
+    drawBar();
     if (slot) slot.replaceWith(list);
     else if (checks.length) prose.append(h('h2', null, 'For your review'), list);
     main.append(prose);

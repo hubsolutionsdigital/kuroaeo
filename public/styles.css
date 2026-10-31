@@ -583,3 +583,9 @@ button.linklike { background: none; border: none; padding: 0; font: inherit; cur
 .seg.doc-tabs button.needs.active { background: #fff; box-shadow: inset 0 0 0 2px #e0a800, 0 1px 3px rgba(0, 0, 0, .08); }
 .seg.doc-tabs button.done { color: #1f7a55; }
 .doc-tab-count { font-size: 11.5px; font-weight: 700; background: #e0a800; color: #fff; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+
+/* Review points in a document overview: tick several, confirm in one go */
+.check-bar { position: sticky; top: 8px; z-index: 5; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border: 1px solid var(--mint-line); background: var(--mint); border-radius: 12px; box-shadow: var(--shadow); }
+.check-all { font-weight: 600; font-size: 14px; cursor: pointer; }
+.check-all input, .check-item .check-box { width: 20px; height: 20px; accent-color: var(--brand); cursor: pointer; margin: 2px 0 0; }
+.check-item.picked { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); background: #f7f9fe; }
