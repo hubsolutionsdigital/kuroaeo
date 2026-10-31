@@ -111,11 +111,31 @@ function listFeedback(projectId) {
   return db.prepare('SELECT * FROM feedback WHERE project_id = ? ORDER BY created_at, id').all(projectId);
 }
 
+// For a document (blogs, GBP posts, landing pages): when each article's or
+// review point's current wording first appeared. Re-uploading a document
+// keeps the client's approval on articles that did not change; an article
+// whose text changed needs a new look. Sheets are re-uploaded every month
+// with new ranking columns, so their rows keep feedback from any time.
+function reviewedSince(d) {
+  const since = {};
+  if (d.kind !== 'doc') return since;
+  const versions = db.prepare('SELECT id, created_at FROM datasets WHERE project_id = ? AND tab = ? AND name = ? AND id <= ? ORDER BY id DESC')
+    .all(d.project_id, d.tab, d.name, d.id);
+  const dataOf = db.prepare('SELECT item_key, data FROM items WHERE dataset_id = ?');
+  const byVersion = versions.map((v) => ({ at: v.created_at, data: new Map(dataOf.all(v.id).map((i) => [i.item_key, i.data])) }));
+  for (const [key, data] of byVersion[0].data) {
+    let at = byVersion[0].at;
+    for (const v of byVersion.slice(1)) { if (v.data.get(key) === data) at = v.at; else break; }
+    since[key] = at;
+  }
+  return since;
+}
+
 // What is inside each sheet or document (newest version), for the client's
 // home page: the keyword, page or article names, without the full data.
 function reviewContents(projectId) {
   const latest = db.prepare(`
-    SELECT d.id, d.tab, d.name, d.period, d.phase, d.kind, d.created_at FROM datasets d
+    SELECT d.id, d.project_id, d.tab, d.name, d.period, d.phase, d.kind, d.created_at FROM datasets d
     WHERE d.id IN (SELECT MAX(id) FROM datasets WHERE project_id = ? GROUP BY tab, name) ORDER BY d.id
   `).all(projectId);
   const items = db.prepare('SELECT kind, item_key, label FROM items WHERE dataset_id = ? ORDER BY position');
@@ -126,6 +146,7 @@ function reviewContents(projectId) {
       checks: all.filter((i) => i.kind === 'check').length,
       checkKeys: all.filter((i) => i.kind === 'check').map((i) => i.item_key),
       items: all.filter((i) => i.kind !== 'check').map((i) => ({ key: i.item_key, label: i.label })),
+      since: reviewedSince(d),
     };
   });
 }
@@ -133,20 +154,25 @@ function reviewContents(projectId) {
 // Review progress per tab, counted over the newest version of each sheet/doc.
 function tabProgress(projectId) {
   const latest = db.prepare(`
-    SELECT MAX(id) AS id FROM datasets WHERE project_id = ? GROUP BY tab, name
-  `).all(projectId).map((r) => r.id);
-  const reviewed = new Set(db.prepare(`
-    SELECT DISTINCT item_key FROM feedback WHERE project_id = ? AND parent_id IS NULL AND author_role = 'client'
-  `).all(projectId).map((r) => r.item_key));
+    SELECT * FROM datasets WHERE id IN (SELECT MAX(id) FROM datasets WHERE project_id = ? GROUP BY tab, name)
+  `).all(projectId);
+  // The newest client feedback on each item.
+  const lastFeedback = new Map(db.prepare(`
+    SELECT item_key, MAX(created_at) AS at FROM feedback WHERE project_id = ? AND parent_id IS NULL AND author_role = 'client' GROUP BY item_key
+  `).all(projectId).map((r) => [r.item_key, r.at]));
   const out = Object.fromEntries(TABS.map((t) => [t, { items: 0, reviewed: 0 }]));
-  if (!latest.length) return out;
-  const keys = db.prepare(`
-    SELECT DISTINCT tab, item_key FROM items WHERE dataset_id IN (${latest.map(() => '?').join(',')})
-  `).all(...latest);
-  for (const k of keys) {
-    if (!out[k.tab]) continue;
-    out[k.tab].items++;
-    if (reviewed.has(k.item_key)) out[k.tab].reviewed++;
+  const seen = new Set();
+  const keysOf = db.prepare('SELECT DISTINCT item_key FROM items WHERE dataset_id = ?');
+  for (const d of latest) {
+    if (!out[d.tab]) continue;
+    const since = reviewedSince(d);
+    for (const { item_key: key } of keysOf.all(d.id)) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out[d.tab].items++;
+      const at = lastFeedback.get(key);
+      if (at && (!since[key] || at >= since[key])) out[d.tab].reviewed++;
+    }
   }
   return out;
 }

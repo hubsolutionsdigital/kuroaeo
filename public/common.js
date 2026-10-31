@@ -116,6 +116,7 @@ const STATUS_CHIP = {
   approved: ['chip ok', '✓ Approved'],
   changes: ['chip warn', 'Changes requested'],
   question: ['chip info', 'Question asked'],
+  updated: ['chip warn', '↻ Updated, please check again'],
 };
 
 function statusChip(st) {

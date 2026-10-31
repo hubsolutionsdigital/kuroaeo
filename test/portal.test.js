@@ -260,3 +260,30 @@ test('exports a document to Word with the client’s edits applied', async () =>
   assert.match(value, /<a href="https:\/\/example.com">our site<\/a>/);
   assert.match(value, /<img /);
 });
+
+test('re-uploading a document keeps approvals on unchanged articles', async (t) => {
+  const { db } = require('../lib/db');
+  const server = app.listen(0);
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const pid = Number(db.prepare("INSERT INTO projects (name, token) VALUES ('Reupload Co', 'reupload-token')").run().lastInsertRowid);
+  const version = (at, bText) => {
+    const id = Number(db.prepare("INSERT INTO datasets (project_id, tab, name, kind, created_at) VALUES (?, 'blogs', 'Blogs', 'doc', ?)").run(pid, at).lastInsertRowid);
+    const ins = db.prepare("INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, 'blogs', ?, ?, ?, ?, ?)");
+    ins.run(id, pid, 'article', 'blogs:article:a', 'A', 0, JSON.stringify({ title: 'A', html: '<p>Same text</p>' }));
+    ins.run(id, pid, 'article', 'blogs:article:b', 'B', 1, JSON.stringify({ title: 'B', html: `<p>${bText}</p>` }));
+    ins.run(id, pid, 'check', 'blogs:check:1', 'Confirm prices', 2, JSON.stringify({ text: 'Confirm prices' }));
+    return id;
+  };
+  version('2026-10-01 10:00:00', 'First draft');
+  const approve = db.prepare("INSERT INTO feedback (project_id, tab, item_key, item_label, type, author_role, name, status, created_at) VALUES (?, 'blogs', ?, 'x', 'approve', 'client', 'Tina', 'noted', '2026-10-02 10:00:00')");
+  for (const k of ['blogs:article:a', 'blogs:article:b', 'blogs:check:1']) approve.run(pid, k);
+  // The team uploads the document again; only article B's text changed.
+  version('2026-10-03 10:00:00', 'Revised draft');
+  const d = await (await fetch(`${base}/api/c/reupload-token`)).json();
+  const c = d.contents.find((x) => x.name === 'Blogs');
+  assert.equal(c.since['blogs:article:a'], '2026-10-01 10:00:00', 'unchanged since the first upload');
+  assert.equal(c.since['blogs:article:b'], '2026-10-03 10:00:00', 'changed in the new upload');
+  assert.equal(c.since['blogs:check:1'], '2026-10-01 10:00:00');
+  assert.deepEqual(d.progress.blogs, { items: 3, reviewed: 2 }, 'only the changed article needs review again');
+});

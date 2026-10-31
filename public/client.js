@@ -446,14 +446,27 @@ function groupsFor(tab, phase = 'all') {
 }
 
 // How many items in an upload (latest version) the client has not reviewed
-// yet: rows, articles and overview points with no feedback from the client
-// since it was uploaded, so a revised article uploaded again needs a new look.
+// yet: rows, articles and overview points with no client feedback since
+// their current wording was uploaded (an article that changed in a new
+// upload needs a new look; unchanged ones keep their approval).
 function toReview(tab, name) {
   const c = (S.contents || []).find((x) => x.tab === tab && x.name === name);
   if (!c) return null;
   const fb = fbByKey();
-  const reviewed = (key) => (fb.get(key) || []).some((f) => !f.parent_id && f.author_role === 'client' && (!c.created_at || f.created_at >= c.created_at));
+  const since = c.since || {};
+  const reviewed = (key) => (fb.get(key) || []).some((f) => !f.parent_id && f.author_role === 'client' && (!since[key] || f.created_at >= since[key]));
   return [...c.items.map((i) => i.key), ...(c.checkKeys || [])].filter((k) => !reviewed(k)).length;
+}
+
+// An article's status, unless its text changed in a later upload after the
+// client last gave feedback: then it needs another look.
+function docStatus(dataset, key, fb) {
+  const st = itemStatus(fb.get(key));
+  const c = (S.contents || []).find((x) => x.id === dataset.id);
+  const since = c && c.since ? c.since[key] : null;
+  if (!since || st.key === 'pending') return st;
+  const fresh = (fb.get(key) || []).some((f) => !f.parent_id && f.author_role === 'client' && f.created_at >= since);
+  return fresh ? st : { ...st, key: 'updated' };
 }
 
 function tabPhases(tab) {
@@ -1378,7 +1391,7 @@ function renderDoc(payload) {
       h('span', { class: 't' }, '📋 Overview'),
       checks.length ? h('span', { class: 'muted small' }, `${checksDone} of ${checks.length} points confirmed`) : null) : null,
     articles.map((a) => {
-      const st = itemStatus(fb.get(a.item_key));
+      const st = docStatus(dataset, a.item_key, fb);
       const nEdits = (payload.edits || []).filter((e) => e.item_key === a.item_key).length;
       return h('button', { class: section === a.item_key ? 'active' : '', onclick: () => go(a.item_key) },
         h('span', { class: 't' }, a.data.number ? `${a.data.number}. ${a.data.title}` : a.data.title),
@@ -1444,7 +1457,7 @@ function renderDoc(payload) {
     feedbackLog(side, `Feedback log: all ${TAB_META[dataset.tab].noun}s`, all, { key: `doc:${dataset.id}`, showItem: true });
   } else {
     const a = articles.find((x) => x.item_key === section);
-    const st = itemStatus(fb.get(a.item_key));
+    const st = docStatus(dataset, a.item_key, fb);
     const noun = TAB_META[dataset.tab].noun;
     const approve = () => {
       const b = h('button', { class: 'btn brand' }, st.key === 'approved' ? '✓ Approved' : `✓ Approve ${noun}`);
