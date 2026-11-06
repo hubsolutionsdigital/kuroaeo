@@ -266,6 +266,18 @@ function dropzone(accept, label, hint, onFile) {
 
 /* ---------- pick a Google Sheet instead of uploading an .xlsx ---------- */
 
+// A Google error with its fix: "…Drive API has not been used in project N…
+// Enable it by visiting https://console.developers.google.com/…" gets a button.
+function googleProblem(message) {
+  const url = (String(message).match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"'<>]+?(?=[.,;)]?(?:\s|$))/) || [])[0];
+  const disabled = /has not been used in project|is disabled|SERVICE_DISABLED/i.test(message);
+  return h('div', { class: 'small', style: { background: 'var(--red)', color: 'var(--red-ink)', padding: '10px 12px', borderRadius: '10px', marginTop: '8px', display: 'grid', gap: '6px' } },
+    disabled
+      ? h('div', null, h('strong', null, 'The Google Drive API is switched off in your Google Cloud project. '), 'Open the link, click Enable, wait a minute, then reload this page.')
+      : h('div', null, message.replace(url || '\u0000', '').trim()),
+    url ? h('div', null, h('a', { class: 'btn sm', href: url, target: '_blank', rel: 'noopener noreferrer' }, disabled ? 'Enable the Google Drive API ↗' : 'Open in Google Cloud ↗')) : null);
+}
+
 // purpose: 'upload' (sheets for the review tabs) or 'metrics' (monthly numbers).
 function googleSheetPicker(p, purpose, onPick) {
   const box = h('div', { class: 'gsheet' }, h('div', { class: 'muted small' }, 'Checking Google…'));
@@ -289,14 +301,19 @@ function googleSheetPicker(p, purpose, onPick) {
     const search = h('input', { class: 'input', placeholder: 'Search your spreadsheets…', style: { maxWidth: '260px' } });
     const select = h('select', { class: 'select', 'aria-label': 'Spreadsheet' }, h('option', { value: '' }, 'Loading your spreadsheets…'));
     const go = h('button', { class: 'btn primary' }, purpose === 'upload' ? 'Read this sheet' : 'Import numbers');
+    const problem = h('div');
     const load = async (q) => {
+      problem.replaceChildren();
       try {
         const { files } = await api('GET', `/api/admin/google/sheets?q=${encodeURIComponent(q || '')}`);
         const opts = files.map((f) => h('option', { value: f.id, selected: last && last.id === f.id },
           `${f.name}${f.isGoogleSheet ? '' : ' (.xlsx)'} · edited ${new Date(f.modifiedTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`));
         if (last && !files.some((f) => f.id === last.id) && !q) opts.unshift(h('option', { value: last.id, selected: true }, `${last.name} (last used)`));
         select.replaceChildren(...(opts.length ? opts : [h('option', { value: '' }, q ? 'No spreadsheets match' : 'No spreadsheets found')]));
-      } catch (err) { select.replaceChildren(h('option', { value: '' }, err.message)); }
+      } catch (err) {
+        select.replaceChildren(h('option', { value: '' }, 'Could not load your spreadsheets'));
+        problem.replaceChildren(googleProblem(err.message));
+      }
     };
     let t = null;
     search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => load(search.value.trim()), 300); });
@@ -306,12 +323,14 @@ function googleSheetPicker(p, purpose, onPick) {
       try { await onPick(id); } catch (err) { toast(err.message, true); } finally { go.disabled = false; }
     };
     go.addEventListener('click', () => run(select.value));
-    box.replaceChildren(head,
-      last ? h('div', { class: 'small row-flex', style: { marginBottom: '8px' } },
-        h('span', { class: 'muted' }, 'Last used: ', h('strong', null, last.name)),
+    // Native replaceChildren prints null as the text "null", so leave it out.
+    box.replaceChildren(...[head,
+      last && last.id ? h('div', { class: 'small row-flex', style: { marginBottom: '8px' } },
+        h('span', { class: 'muted' }, 'Last used: ', h('strong', null, last.name || 'a spreadsheet')),
         h('button', { class: 'btn sm', onclick: (e) => { e.currentTarget.disabled = true; run(last.id); } }, '↻ Get the latest')) : null,
       h('div', { class: 'row-flex' }, search, select, go),
-      h('div', { class: 'muted small', style: { marginTop: '6px' } }, `Reads the sheet as it is right now from ${g.email}’s Google Drive. Nothing is changed in Google Sheets.`));
+      problem,
+      h('div', { class: 'muted small', style: { marginTop: '6px' } }, `Reads the sheet as it is right now from ${g.email}’s Google Drive. Nothing is changed in Google Sheets.`)].filter(Boolean));
     load('');
   }, (err) => box.replaceChildren(h('div', { class: 'muted small' }, err.message)));
   return box;
