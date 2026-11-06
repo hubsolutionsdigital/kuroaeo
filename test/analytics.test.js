@@ -233,7 +233,7 @@ test('reads AI answer rankings from the keyword sheet', () => {
   ins.run(ds, pid, 'keywords:hearing aids', 'hearing aids', 1, JSON.stringify(['hearing aids', 30, 'No', 4, 'no', '']));
   ins.run(ds, pid, 'keywords:ear wax', 'ear wax', 2, JSON.stringify(['ear wax', '>100', '', '', '', '']));
   const rep = analytics.dashboard(pid).rankingReport;
-  assert.deepEqual(rep.ai, [{ engine: 'Google AI Overview', label: 'Month 2' }, { engine: 'ChatGPT', label: 'Latest' }], 'latest month per engine, notes ignored');
+  assert.deepEqual(rep.ai, [{ engine: 'Google AI Overview', label: 'Month 2', baseline: false }, { engine: 'ChatGPT', label: 'Latest', baseline: false }], 'latest month per engine, notes ignored');
   assert.deepEqual(rep.rows.map((r) => r.ai), [
     [{ shown: true, pos: 1 }, { shown: true, pos: null }],
     [{ shown: true, pos: 4 }, { shown: false, pos: null }],
@@ -362,4 +362,18 @@ test('DataForSEO: retries when busy, carries on past one bad keyword, and says w
   const broke = async () => ({ ok: false, status: 402, json: async () => ({ status_code: 40210, status_message: 'You don’t have enough funds on your account.' }) });
   const r2 = await analytics.syncProject(pid, { only: 'dataforseo', fetchImpl: broke });
   assert.match(r2.errors[0], /DataForSEO says: You don’t have enough funds on your account\. \(code 40210\)/);
+});
+
+test('an AI column dated at the start of the campaign is a baseline, not the latest result', () => {
+  const pid = project();
+  const ds = Number(db.prepare("INSERT INTO datasets (project_id, tab, name, kind, columns) VALUES (?, 'keywords', 'Keywords', 'table', ?)")
+    .run(pid, JSON.stringify(['Keyword', 'Google AI Overview · Current Ranking - 28-09-2026', 'ChatGpt Ranking · Current Ranking - 28-09-2026', 'ChatGPT (Month 2)'])).lastInsertRowid);
+  db.prepare("INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, 'keywords', 'row', 'keywords:hearing aids', 'hearing aids', 0, ?)")
+    .run(ds, pid, JSON.stringify(['hearing aids', 'NA', 'NA', 2]));
+  const rep = analytics.dashboard(pid).rankingReport;
+  assert.deepEqual(rep.ai, [
+    { engine: 'Google AI Overview', label: 'When we started (28 Sep 2026)', baseline: true },
+    { engine: 'ChatGPT', label: 'Month 2', baseline: false },
+  ]);
+  assert.deepEqual(rep.rows[0].ai, [{ shown: false, pos: null }, { shown: true, pos: 2 }]);
 });

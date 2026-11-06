@@ -195,11 +195,13 @@ function aiWins(rep) {
     const places = rep.rows.map((r) => ({ keyword: r.keyword, p: r.ai[j] })).filter((x) => x.p !== null);
     const first = places.filter((x) => x.p.pos === 1);
     return {
+      baseline: Boolean(a.baseline), present: places.filter((x) => x.p.present !== false).length,
       live: Boolean(a.live), named: places.filter((x) => x.p.named).length, cited: places.filter((x) => x.p.cited).length,
       engine: a.engine, label: a.label, total: rep.rows.length, checked: places.length,
       shown: places.filter((x) => x.p.shown).length, first: first.length, firstExample: first[0] ? first[0].keyword : null,
     };
-  }).filter((w) => w.checked);
+  // A "when we started" column is a baseline, not a result to show off.
+  }).filter((w) => w.checked && !w.baseline);
 }
 
 function rankTile(label, value, small, note, up) {
@@ -220,7 +222,7 @@ function aiTiles(list) {
     tiles.push(h('div', { class: 'stat ai-stat' },
       h('div', { class: 'k' }, `✨ Shown in ${w.engine}`),
       h('div', { class: 'v' }, String(w.shown), h('small', null, `of ${w.total} keywords`)),
-      h('div', { class: 'stat-deltas' }, h('span', { class: 'muted' }, w.label))));
+      h('div', { class: 'stat-deltas' }, h('span', { class: 'muted' }, w.live ? `${w.label} · AI Overview shown for ${w.present} of ${w.checked}` : w.label))));
   }
   return tiles;
 }
