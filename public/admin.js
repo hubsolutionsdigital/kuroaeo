@@ -563,7 +563,8 @@ async function renderPerformanceAdmin(body) {
     g.mode === 'oauth' ? pickNote : null,
     h('div', { class: 'row-flex' }, saveBtn, syncBtn,
       s.lastSync ? h('span', { class: 'muted small' }, `Last synced ${timeAgo(s.lastSync.replace('T', ' ').slice(0, 19))}. Data refreshes daily.`) : null),
-    (s.lastErrors || []).length ? h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, s.lastErrors.join(' · ')) : null);
+    // DataForSEO problems are shown on its own card below.
+    (s.lastErrors || []).filter((e) => !/^DATAFORSEO/i.test(e)).length ? h('div', { class: 'small', style: { color: 'var(--red-ink)' } }, s.lastErrors.filter((e) => !/^DATAFORSEO/i.test(e)).join(' · ')) : null);
 
   const dfsBtn = h('button', { class: 'btn primary' }, '↻ Check all keywords now');
   dfsBtn.addEventListener('click', () => sync(dfsBtn, 'dataforseo'));

@@ -333,3 +333,33 @@ test('AI Overview: only real sources and the answer text count', () => {
   assert.equal(b.named, true);
   assert.match(b.snippet, /DOT Chambers LLC/);
 });
+
+test('DataForSEO: retries when busy, carries on past one bad keyword, and says what DataForSEO said', async () => {
+  process.env.DATAFORSEO_LOGIN = 'me@agency.test';
+  process.env.DATAFORSEO_PASSWORD = 'pw';
+  analytics.setDfsRetryMs(1);
+  const pid = project();
+  const ds = Number(db.prepare("INSERT INTO datasets (project_id, tab, name, kind, columns) VALUES (?, 'keywords', 'Keywords', 'table', ?)").run(pid, JSON.stringify(['Keyword'])).lastInsertRowid);
+  const ins = db.prepare("INSERT INTO items (dataset_id, project_id, tab, kind, item_key, label, position, data) VALUES (?, ?, 'keywords', 'row', ?, ?, ?, ?)");
+  ['one', 'two', 'three', 'four', 'five'].forEach((k, i) => ins.run(ds, pid, `keywords:${k}`, k, i, JSON.stringify([k])));
+  analytics.saveSettings(pid, { dataforseo: { enabled: true, domain: 'example.com', brand: 'Example' } });
+  const ok = { ok: true, status: 200, json: async () => ({ status_code: 20000, tasks: [{ status_code: 20000, cost: 0.006, result: [{ items: [] }] }] }) };
+  let busyOnce = true;
+  const fetch1 = async (url, opts) => {
+    const { keyword } = JSON.parse(opts.body)[0];
+    if (keyword === 'two' && busyOnce) { busyOnce = false; return { ok: true, status: 200, json: async () => ({ status_code: 20000, tasks: [{ status_code: 40202, status_message: 'Rate-limit per minute exceeded.' }] }) }; }
+    if (keyword === 'four') return { ok: true, status: 200, json: async () => ({ status_code: 20000, tasks: [{ status_code: 40501, status_message: 'Invalid Field: keyword.' }] }) };
+    return ok;
+  };
+  const r = await analytics.syncProject(pid, { only: 'dataforseo', fetchImpl: fetch1 });
+  const st = analytics.getSettings(pid).dataforseo;
+  assert.equal(st.lastCount, 4, 'the busy keyword was retried; only the bad one is missing');
+  assert.match(st.lastError, /1 keyword could not be checked \(“four”\): DataForSEO: Invalid Field: keyword\. \(code 40501\)/);
+  assert.ok(st.lastErrorAt);
+  assert.match(r.errors[0], /4 of 5 keywords were checked/);
+
+  // An empty account stops the run, in DataForSEO's own words.
+  const broke = async () => ({ ok: false, status: 402, json: async () => ({ status_code: 40210, status_message: 'You don’t have enough funds on your account.' }) });
+  const r2 = await analytics.syncProject(pid, { only: 'dataforseo', fetchImpl: broke });
+  assert.match(r2.errors[0], /DataForSEO says: You don’t have enough funds on your account\. \(code 40210\)/);
+});
