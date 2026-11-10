@@ -166,11 +166,29 @@ function stat(label, g, { format = compact, sinceLabel } = {}) {
 
 // Where each tracked keyword ranks now: the better of Google's best day in
 // the last 28 days (Search Console) and our latest month-end report.
+// Search Console positions from only a few searches are not reliable: one
+// appearance as a link in Google's AI Overview counts as position 1.
+const RELIABLE_IMPRESSIONS = 10;
+const reliableGsc = (k) => (k.gscImpressions ?? 0) >= RELIABLE_IMPRESSIONS;
+
+// Where a keyword ranks now in the normal (blue link) results: the live
+// DataForSEO check when there is one, else our month-end report, else
+// Search Console when it is based on enough searches.
+function nowPosition(k, data) {
+  if (data.sources && data.sources.dataforseo && k.livePosition !== undefined) {
+    const c = [k.livePosition, k.reported].filter((v) => v !== null && v !== undefined);
+    return c.length ? Math.round(Math.min(...c)) : null;
+  }
+  const c = [k.reported, reliableGsc(k) ? k.gscBest : null, reliableGsc(k) ? k.gscPosition : null].filter((v) => v !== null && v !== undefined);
+  return c.length ? Math.round(Math.min(...c)) : null;
+}
+
 function rankWins(data) {
   const kws = data.keywords || [];
   if (!kws.length) return null;
   const rows = kws.map((k) => {
-    const cands = [k.gscBest, k.reported, k.livePosition].filter((v) => v !== null && v !== undefined);
+    const n = nowPosition(k, data);
+    const cands = n === null ? [] : [n];
     return { keyword: k.keyword, now: cands.length ? Math.round(Math.min(...cands)) : null, start: k.start };
   });
   if (!rows.some((r) => r.now !== null)) return null;
@@ -293,6 +311,19 @@ function perfSummary(data) {
   const ai = growth(ga4.ai_sessions);
   if (ai) out.push(`AI assistants such as ChatGPT and Perplexity sent ${compact(ai.value)} visits in ${ymLabel(ai.last, true)}, a sign you are being recommended in AI answers.`);
   return out;
+}
+
+// A Search Console position, greyed out when based on only a few searches,
+// and explained when it comes from a link in Google's AI Overview.
+function gscCell(k, pos) {
+  const p = pos(k.gscPosition);
+  const weak = !reliableGsc(k);
+  const viaAi = p <= 3 && k.liveAiCited && (k.livePosition === null || k.livePosition > 10);
+  return [
+    weak ? h('span', { class: 'rank rnone', title: `Only ${k.gscImpressions || 0} searches this week: not a reliable position` }, String(p)) : rankBadge(p),
+    viaAi ? h('span', { class: 'ai-badge named', style: { marginLeft: '6px' }, title: 'Search Console counts your link in Google’s AI Overview as a top position' }, 'AI Overview link') : null,
+    weak && !viaAi ? h('span', { class: 'muted small', style: { marginLeft: '6px' } }, 'few searches') : null,
+  ];
 }
 
 // Place in an AI answer. From the live check: "Source #n" (the n-th source
@@ -486,20 +517,22 @@ async function renderPerformance(root) {
     const pos = (v) => (v === null || v === undefined ? null : Math.round(v * 10) / 10);
     const sortKey = (k) => Math.min(...[k.gscBest, k.gscPosition, k.livePosition, showLive ? k.semrushPosition : null].filter((v) => v !== null && v !== undefined), 1000);
     const rows = [...data.keywords].sort((x, y) => sortKey(x) - sortKey(y));
-    const page1 = data.keywords.filter((k) => Math.min(k.gscBest ?? 999, k.livePosition ?? 999) <= 10).length;
+    const page1 = data.keywords.filter((k) => { const n = nowPosition(k, data); return n !== null && n <= 10; }).length;
     const place = COUNTRY_NAMES[data.country] ? ` in ${COUNTRY_NAMES[data.country]}` : '';
     const day = (d) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '');
     kwTable = h('div', { class: 'card card-pad' },
       h('h3', { style: { margin: '0 0 4px' } }, 'Your keywords in Google today'),
       h('div', { class: 'muted small', style: { marginBottom: '10px' } },
         page1 ? h('strong', { style: { color: 'var(--ok-ink)' } }, `${page1} ${page1 === 1 ? 'keyword has' : 'keywords have'} reached page 1 of Google this month. `) : null,
-        `Google’s own numbers from Search Console, for searches${place}. “This week” is the average position over the last 7 days; “Best day” is the highest daily position in the last 28 days${exact ? `; “Exact position” is a live Google check on ${checked}` : ''}${showLive ? '; SEMrush shows today’s position' : ''}. ${withData.length} of ${data.keywords.length} keywords have data.`),
+        `Google’s own numbers from Search Console, for searches${place}. “This week” is the average position over the last 7 days and “Searches” how many times you appeared; “Best day” is the best daily position in the last 28 days (days with 3+ searches)${exact ? `; “Exact position” is the normal blue-link ranking in a live Google check on ${checked}` : ''}${showLive ? '; SEMrush shows today’s position' : ''}. ${withData.length} of ${data.keywords.length} keywords have data.`),
+      h('div', { class: 'muted small', style: { marginBottom: '10px' } }, 'Search Console also counts an appearance as a link in Google’s AI Overview or a map listing as a top position, so a position from only a few searches is shown in grey.'),
       h('div', { class: 'table-wrap', style: { maxHeight: '420px' } }, h('table', { class: 'data' },
-        h('thead', null, h('tr', null, h('th', null, 'Keyword'), h('th', null, 'Best day (28 days)'), h('th', null, 'This week (avg.)'), h('th', null, 'Clicks (7 days)'), exact ? h('th', null, `Exact position · ${checked}`) : null, showLive ? h('th', null, 'SEMrush today') : null)),
+        h('thead', null, h('tr', null, h('th', null, 'Keyword'), h('th', null, 'Best day (28 days)'), h('th', null, 'This week (avg.)'), h('th', null, 'Searches (7 days)'), h('th', null, 'Clicks (7 days)'), exact ? h('th', null, `Exact position · ${checked}`) : null, showLive ? h('th', null, 'SEMrush today') : null)),
         h('tbody', null, rows.map((k) => h('tr', null,
           h('td', { class: 'primary' }, k.keyword),
           h('td', null, k.gscBest !== null ? [rankBadge(pos(k.gscBest)), k.gscBestDate ? h('span', { class: 'muted small', style: { marginLeft: '6px' } }, day(k.gscBestDate)) : null] : h('span', { class: 'muted' }, 'Not yet')),
-          h('td', null, k.gscPosition !== null ? rankBadge(pos(k.gscPosition)) : h('span', { class: 'muted' }, '–')),
+          h('td', { class: 'nowrap' }, k.gscPosition !== null ? gscCell(k, pos) : h('span', { class: 'muted' }, '–')),
+          h('td', { class: 'num' }, k.gscImpressions !== null && k.gscImpressions !== undefined ? compact(k.gscImpressions) : '–'),
           h('td', { class: 'num' }, k.gscClicks !== null ? compact(k.gscClicks) : '–'),
           exact ? h('td', { class: 'nowrap' }, k.livePosition !== null ? [rankBadge(k.livePosition), k.liveUrl ? linkIcon(k.liveUrl) : null] : h('span', { class: 'muted small' }, 'Not in top 20')) : null,
           showLive ? h('td', null, k.semrushPosition !== null ? rankBadge(k.semrushPosition) : h('span', { class: 'muted' }, 'Not in top 100'),
