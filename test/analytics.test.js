@@ -115,6 +115,8 @@ test('syncs Search Console, GA4 and SEMrush into monthly numbers', async () => {
   assert.deepEqual(d.rankingReport.months.map((m) => m.label), ['Month 1']);
   assert.deepEqual(d.rankingReport.rows[0], { keyword: 'hearing aids', volume: null, start: '>100', months: [{ rank: 8, target: null }], next: null, ai: [] });
   assert.equal(kw.gscBestDate, '2026-10-05');
+  assert.ok(Math.abs(kw.gscAvg28 - (9.2 * 40 + 4 * 50) / 90) < 1e-9, '28-day average weighted by searches');
+  assert.equal(kw.gscImpr28, 90);
   const test2 = d.keywords.find((k) => k.keyword === 'hearing test');
   assert.equal(test2.gscPosition, null, 'no data this week');
   assert.equal(test2.gscBest, 15, 'a day with a single search is not the best day');
