@@ -497,25 +497,6 @@ async function renderPerformance(root) {
     }));
   }
 
-  // AEO: keywords where the client appears in AI answers, per engine.
-  let aeo = null;
-  if (data.timelines.aeo.length) {
-    const byEngine = {};
-    for (const p of data.timelines.aeo) (byEngine[p.engine] ||= []).push(p);
-    aeo = h('div', { class: 'card card-pad' },
-      h('h3', { style: { margin: '0 0 4px' } }, 'Appearing in AI answers'),
-      h('div', { class: 'muted small', style: { marginBottom: '12px' } }, 'Keywords where AI assistants mention or cite you, from our monthly reports'),
-      h('div', { class: 'aeo-grid' }, Object.entries(byEngine).map(([engine, pts]) => {
-        const last = pts[pts.length - 1];
-        const first = pts[0];
-        return h('div', { class: 'aeo-tile' },
-          h('div', { class: 'k' }, engine),
-          h('div', { class: 'v' }, String(last.appear), h('small', null, `of ${last.total} keywords`)),
-          h('div', { class: 'meter', role: 'img', 'aria-label': `${last.appear} of ${last.total}` }, h('div', { style: { width: `${last.total ? (last.appear / last.total) * 100 : 0}%` } })),
-          pts.length > 1 ? h('div', { class: 'muted small' }, `${first.appear} in ${first.label} → ${last.appear} in ${last.label}`) : h('div', { class: 'muted small' }, last.label));
-      })));
-  }
-
   // Keyword table: Google's own position (Search Console) in the client's
   // country: the last 7 days, and the best single day in the last 28.
   let kwTable = null;
@@ -560,6 +541,5 @@ async function renderPerformance(root) {
     reportTable || '',
     tiles.length ? h('div', { class: 'stats perf-stats' }, tiles) : '',
     charts.length ? h('div', { class: 'viz-grid' }, charts) : '',
-    aeo || '',
     kwTable || '');
 }
